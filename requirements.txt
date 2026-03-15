@@ -1,0 +1,14 @@
+mss==9.0.1
+winrt-Windows.Media.Ocr>=2.0.0
+rapidfuzz==3.6.1
+sentence-transformers==2.7.0
+numpy==1.26.4
+Pillow==10.3.0
+customtkinter==5.2.2
+keyboard==0.13.5
+pywin32==306
+pystray==0.19.5
+psutil==5.9.8
+torch==2.2.2
+transformers==4.40.1
+nuitka==4.0.5
