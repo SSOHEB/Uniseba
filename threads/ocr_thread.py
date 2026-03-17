@@ -35,6 +35,7 @@ class OCRThread(threading.Thread):
         self.logger = logging.getLogger("uniseba")
         self.current_image = None
         self.target_hwnd = None
+        self.blocked_title_tokens = ("powershell", "uniseba", "debug", "python")
 
     def run(self):
         """Keep OCR results fresh until the application exits."""
@@ -59,17 +60,33 @@ class OCRThread(threading.Thread):
     def _update_target_window(self):
         """Track the last foreground window that does not belong to Uniseba."""
         preferred = self.preferred_hwnd()
-        if preferred and preferred not in self.excluded_hwnds() and win32gui.IsWindow(preferred):
+        if preferred and self._is_valid_target(preferred):
             self.target_hwnd = preferred
+            print(f"[OCR TARGET] preferred hwnd={preferred} title={win32gui.GetWindowText(preferred)!r}")
             return
         hwnd = win32gui.GetForegroundWindow()
-        if hwnd and hwnd not in self.excluded_hwnds():
+        if hwnd and self._is_valid_target(hwnd):
             self.target_hwnd = hwnd
+            print(f"[OCR TARGET] foreground hwnd={hwnd} title={win32gui.GetWindowText(hwnd)!r}")
+
+    def _is_valid_target(self, hwnd):
+        """Reject invalid, minimized, or known Uniseba/debug windows."""
+        if not hwnd or not win32gui.IsWindow(hwnd) or win32gui.IsIconic(hwnd):
+            print(f"[OCR TARGET] skipped invalid/minimized hwnd={hwnd}")
+            return False
+        if hwnd in self.excluded_hwnds():
+            print(f"[OCR TARGET] skipped owned hwnd={hwnd}")
+            return False
+        title = win32gui.GetWindowText(hwnd).strip().lower()
+        if any(token in title for token in self.blocked_title_tokens):
+            print(f"[OCR TARGET] skipped blocked title hwnd={hwnd} title={title!r}")
+            return False
+        return True
 
     def _capture_target_window(self):
         """Capture the tracked foreground window using absolute screen coordinates."""
         hwnd = self.target_hwnd
-        if not hwnd or not win32gui.IsWindow(hwnd):
+        if not self._is_valid_target(hwnd):
             return None, None
 
         left, top, right, bottom = win32gui.GetWindowRect(hwnd)
@@ -78,6 +95,7 @@ class OCRThread(threading.Thread):
             return None, None
 
         rect = {"left": left, "top": top, "width": width, "height": height}
+        print(f"[OCR TARGET] capturing hwnd={hwnd} title={win32gui.GetWindowText(hwnd)!r} rect={rect}")
         with mss() as sct:
             shot = sct.grab(rect)
             image = Image.frombytes("RGB", shot.size, shot.rgb)

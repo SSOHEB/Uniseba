@@ -11,6 +11,27 @@ MAX_RESULTS = getattr(config, "MAX_RESULTS", 50)
 MIN_QUERY_LENGTH = getattr(config, "MIN_QUERY_LENGTH", 2)
 
 
+def _boxes_overlap(a, b):
+    """Return True when two result boxes overlap enough to be visually redundant."""
+    ax2 = a["x"] + a["w"]
+    ay2 = a["y"] + a["h"]
+    bx2 = b["x"] + b["w"]
+    by2 = b["y"] + b["h"]
+    overlap_w = max(0, min(ax2, bx2) - max(a["x"], b["x"]))
+    overlap_h = max(0, min(ay2, by2) - max(a["y"], b["y"]))
+    return overlap_w > 0 and overlap_h > 0
+
+
+def _stabilize_results(results):
+    """Remove duplicate/overlapping low-value results to keep highlights stable."""
+    stable = []
+    for item in results:
+        if any(_boxes_overlap(item, kept) for kept in stable):
+            continue
+        stable.append(item)
+    return stable
+
+
 def hybrid_search(query, index, limit=MAX_RESULTS):
     """Merge fuzzy and semantic matches into one ranked result list."""
     normalized_query = query.strip().lower()
@@ -49,6 +70,7 @@ def hybrid_search(query, index, limit=MAX_RESULTS):
         results.append(ranked)
 
     results.sort(key=lambda item: item["final_score"], reverse=True)
+    results = _stabilize_results(results)
     print(f"[SEARCH] query='{query}' matches={len(results[:limit])}")
     if results:
         print("[SEARCH SAMPLE]", results[:3])

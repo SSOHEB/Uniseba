@@ -81,35 +81,40 @@ class OverlayWindow:
             outline="#FFD700",
             width=3
         )
-        self.canvas.lift()
+        self.window.lift()
         self.canvas.update()
 
     def draw_matches(self, matches):
         """Draw gold rectangles at absolute screen coordinates."""
         if not self.exists():
             return
-        self.clear()
-        print(f"[SCREEN] {user32.GetSystemMetrics(0)}x{user32.GetSystemMetrics(1)}")
-        print(f"[OVERLAY] drawing {len(matches)} rectangles")
-        print(f"[overlay] drawing {len(matches)} rectangles")
-        print(matches[:3])
-        self.canvas.create_rectangle(100, 100, 400, 200, fill="blue", outline="blue", width=5)
-        for item in matches:
-            x1 = int(item["x"])
-            y1 = int(item["y"])
-            x2 = x1 + int(item["w"])
-            y2 = y1 + int(item["h"])
-            print(f"[RECT] x={x1}, y={y1}, w={x2-x1}, h={y2-y1}")
-            self.canvas.create_rectangle(
-                x1,
-                y1,
-                x2,
-                y2,
-                fill="red",
-                outline="red",
-                width=4,
-                tags="highlight",
-            )
-        self.canvas.lift()
-        self.canvas.update()
-        self.canvas.update_idletasks()
+        try:
+            self.clear()
+            print(f"[SCREEN] {user32.GetSystemMetrics(0)}x{user32.GetSystemMetrics(1)}")
+            print(f"[OVERLAY] drawing {len(matches)} rectangles")
+            print(f"[overlay] drawing {len(matches)} rectangles")
+            print(matches[:3])
+            self.canvas.create_rectangle(100, 100, 400, 200, fill="blue", outline="blue", width=5)
+            for item in matches:
+                x1 = int(item["x"])
+                y1 = int(item["y"])
+                x2 = x1 + int(item["w"])
+                y2 = y1 + int(item["h"])
+                print(f"[RECT] x={x1}, y={y1}, w={x2-x1}, h={y2-y1}")
+                self.canvas.create_rectangle(
+                    x1,
+                    y1,
+                    x2,
+                    y2,
+                    fill="red",
+                    outline="red",
+                    width=4,
+                    tags="highlight",
+                )
+            self.canvas.tag_raise("highlight")
+            self.window.lift()
+            self.canvas.update()
+            self.canvas.update_idletasks()
+            print("[OVERLAY] draw_matches completed")
+        except Exception as exc:
+            print(f"[OVERLAY] draw_matches failed: {exc}")

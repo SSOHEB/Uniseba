@@ -5,7 +5,7 @@ from rapidfuzz import fuzz, process
 import config
 
 MIN_QUERY_LENGTH = getattr(config, "MIN_QUERY_LENGTH", 2)
-FUZZY_THRESHOLD = getattr(config, "FUZZY_THRESHOLD", 75)
+FUZZY_THRESHOLD = max(85, getattr(config, "FUZZY_THRESHOLD", 75))
 MAX_RESULTS = getattr(config, "MAX_RESULTS", 50)
 
 
@@ -27,6 +27,10 @@ def fuzzy_search(query, index, limit=MAX_RESULTS, threshold=FUZZY_THRESHOLD):
     results = []
     for _, score, match_index in matches:
         entry = dict(index[match_index])
+        normalized_word = entry["word"]
+        substring_match = normalized_query in normalized_word
+        if not substring_match and float(score) < 85:
+            continue
         entry["fuzzy_score"] = float(score) / 100.0
         results.append(entry)
     return results
