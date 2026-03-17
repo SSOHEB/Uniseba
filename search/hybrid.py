@@ -49,6 +49,9 @@ def hybrid_search(query, index, limit=MAX_RESULTS):
         results.append(ranked)
 
     results.sort(key=lambda item: item["final_score"], reverse=True)
+    print(f"[SEARCH] query='{query}' matches={len(results[:limit])}")
+    if results:
+        print("[SEARCH SAMPLE]", results[:3])
     return results[:limit]
 
 

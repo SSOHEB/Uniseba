@@ -46,6 +46,9 @@ class OCRThread(threading.Thread):
                     self.current_image = image
                     words = asyncio.run(recognize_image(image, rect))
                     index = build_ocr_index(words)
+                    print(f"[OCR] words extracted: {len(index)}")
+                    if len(index) > 0:
+                        print("[OCR SAMPLE]", index[:5])
                     print(f"[ocr_thread] queue put index words={len(index)} rect={rect}")
                     self.index_queue.put(index)
             except Exception:

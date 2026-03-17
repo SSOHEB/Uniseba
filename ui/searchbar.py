@@ -106,6 +106,8 @@ class SearchbarApp(ctk.CTk):
         """Debounce keystrokes so search is not run on every key press."""
         if not self.running:
             return
+        query = self.entry.get().strip()
+        print(f"[UI] query typed: {query}")
         print(f"[searchbar] key query={self.entry.get().strip()!r}")
         if self.debounce_job is not None:
             self.after_cancel(self.debounce_job)

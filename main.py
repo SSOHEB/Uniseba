@@ -114,6 +114,7 @@ class IntegratedSearchbarApp(SearchbarApp):
 
         updated = self._drain_latest_index()
         if updated is not None:
+            print(f"[MAIN] received index size: {len(updated)}")
             print(f"[main] received index with {len(updated)} words from OCR queue")
         if updated is not None and self.visible and len(self.entry.get().strip()) >= 2:
             self._apply_search()
