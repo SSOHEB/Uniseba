@@ -75,6 +75,8 @@ class OverlayWindow:
         if not self.exists():
             return
         self.clear()
+        print(f"[overlay] drawing {len(matches)} rectangles")
+        print(matches[:3])
         for item in matches:
             x1 = int(item["x"])
             y1 = int(item["y"])
@@ -85,11 +87,10 @@ class OverlayWindow:
                 y1,
                 x2,
                 y2,
-                outline=HIGHLIGHT_COLOR,
+                fill="red",
+                outline="red",
                 width=4,
                 tags="highlight",
             )
-        sample = matches[0] if matches else None
-        print(f"[overlay] drawing rectangles={len(matches)} sample={sample}")
-        self.canvas.lift("highlight")
+        self.canvas.lift()
         self.canvas.update_idletasks()
