@@ -43,15 +43,25 @@ class OCRThread(threading.Thread):
             try:
                 self._update_target_window()
                 image, rect = self._capture_target_window()
-                if image is not None and has_significant_change(self.current_image, image):
-                    self.current_image = image
-                    words = asyncio.run(recognize_image(image, rect))
-                    index = build_ocr_index(words)
-                    print(f"[OCR] words extracted: {len(index)}")
-                    if len(index) > 0:
-                        print("[OCR SAMPLE]", index[:5])
-                    print(f"[ocr_thread] queue put index words={len(index)} rect={rect}")
-                    self.index_queue.put(index)
+                if image is None:
+                    self.stop_event.wait(SCAN_INTERVAL_MS / 1000.0)
+                    continue
+
+                changed = has_significant_change(self.current_image, image)
+                if not changed:
+                    print("[CHANGE] no change -> skipping OCR")
+                    self.stop_event.wait(SCAN_INTERVAL_MS / 1000.0)
+                    continue
+
+                print("[CHANGE] detected -> running OCR")
+                self.current_image = image
+                words = asyncio.run(recognize_image(image, rect))
+                index = build_ocr_index(words)
+                print(f"[OCR] words extracted: {len(index)}")
+                if len(index) > 0:
+                    print("[OCR SAMPLE]", index[:5])
+                print(f"[ocr_thread] queue put index words={len(index)} rect={rect}")
+                self.index_queue.put(index)
             except Exception:
                 self.logger.exception("OCR thread failed while updating the index.")
 
