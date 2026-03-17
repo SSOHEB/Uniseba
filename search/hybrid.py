@@ -2,7 +2,7 @@
 
 import config
 
-from search.fuzzy import fuzzy_search
+from search.fuzzy import fuzzy_search, is_viable_search_word
 from search.semantic import semantic_search
 
 FUZZY_WEIGHT = getattr(config, "FUZZY_WEIGHT", 0.4)
@@ -48,6 +48,8 @@ def hybrid_search(query, index, limit=MAX_RESULTS):
         }
 
     for entry in semantic_search(normalized_query, index, limit=limit):
+        if not is_viable_search_word(normalized_query, entry):
+            continue
         key = (entry["x"], entry["y"])
         current = merged.setdefault(
             key,

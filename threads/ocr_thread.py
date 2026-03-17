@@ -15,6 +15,8 @@ from ocr.engine import recognize_image
 from ocr.index import build_ocr_index
 
 SCAN_INTERVAL_MS = getattr(config, "SCAN_INTERVAL_MS", 200)
+MIN_TARGET_WIDTH = 300
+MIN_TARGET_HEIGHT = 200
 
 
 class OCRThread(threading.Thread):
@@ -78,6 +80,9 @@ class OCRThread(threading.Thread):
         if hwnd and self._is_valid_target(hwnd):
             self.target_hwnd = hwnd
             print(f"[OCR TARGET] foreground hwnd={hwnd} title={win32gui.GetWindowText(hwnd)!r}")
+            return
+        if self.target_hwnd and self._is_valid_target(self.target_hwnd):
+            print(f"[OCR TARGET] fallback to last valid hwnd={self.target_hwnd} title={win32gui.GetWindowText(self.target_hwnd)!r}")
 
     def _is_valid_target(self, hwnd):
         """Reject invalid, minimized, or known Uniseba/debug windows."""
@@ -87,9 +92,19 @@ class OCRThread(threading.Thread):
         if hwnd in self.excluded_hwnds():
             print(f"[OCR TARGET] skipped owned hwnd={hwnd}")
             return False
-        title = win32gui.GetWindowText(hwnd).strip().lower()
+        raw_title = win32gui.GetWindowText(hwnd).strip()
+        if len(raw_title) < 2:
+            print(f"[OCR TARGET] skipped empty title hwnd={hwnd}")
+            return False
+        title = raw_title.lower()
         if any(token in title for token in self.blocked_title_tokens):
             print(f"[OCR TARGET] skipped blocked title hwnd={hwnd} title={title!r}")
+            return False
+        left, top, right, bottom = win32gui.GetWindowRect(hwnd)
+        width = right - left
+        height = bottom - top
+        if width < MIN_TARGET_WIDTH or height < MIN_TARGET_HEIGHT:
+            print(f"[OCR TARGET] skipped small window hwnd={hwnd} size={width}x{height}")
             return False
         return True
 
