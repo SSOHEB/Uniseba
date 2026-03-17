@@ -19,22 +19,22 @@ class OverlayWindow:
         self.window.withdraw()
         self.window.overrideredirect(True)
         self.window.attributes("-topmost", True)
-        self.window.configure(bg=KEY_COLOR)
+        self.window.attributes("-alpha", 0.9)
+        self.window.configure(bg="#010101")
 
         width = self.window.winfo_screenwidth()
         height = self.window.winfo_screenheight()
         self.window.geometry(f"{width}x{height}+0+0")
-        self.window.wm_attributes("-transparentcolor", KEY_COLOR)
+        self.window.attributes("-transparentcolor", "#010101")
 
         self.canvas = tk.Canvas(
             self.window,
-            bg=KEY_COLOR,
+            bg="#010101",
             highlightthickness=0,
-            bd=0,
         )
         self.canvas.pack(fill="both", expand=True)
         self.window.update_idletasks()
-        self._apply_click_through()
+        # self._apply_click_through()
         self.window.after(1000, self.test_static_rectangle)
 
     def _apply_click_through(self):
