@@ -3,7 +3,7 @@
 import asyncio
 import io
 
-from PIL import Image
+from PIL import Image, ImageOps
 
 from capture.screen import capture_active_window
 from ocr.index import build_ocr_index
@@ -41,6 +41,15 @@ async def _image_to_software_bitmap(image):
     return await decoder.get_software_bitmap_async()
 
 
+def _prepare_image_for_ocr(image, scale_factor=2):
+    """Upscale and normalize the image so small text is easier to detect."""
+    width = max(1, image.width * scale_factor)
+    height = max(1, image.height * scale_factor)
+    enlarged = image.resize((width, height), Image.Resampling.LANCZOS)
+    normalized = ImageOps.autocontrast(enlarged.convert("L"))
+    return normalized.convert("RGB"), scale_factor
+
+
 async def recognize_image(image, window_rect=None, min_height=8):
     """Run OCR on a PIL image and return filtered words with absolute boxes."""
     Language, _, _, _, OcrEngine = _load_winrt_modules()
@@ -48,7 +57,8 @@ async def recognize_image(image, window_rect=None, min_height=8):
     if engine is None:
         raise RuntimeError("English OCR engine is not available.")
 
-    bitmap = await _image_to_software_bitmap(image)
+    prepared_image, scale_factor = _prepare_image_for_ocr(image)
+    bitmap = await _image_to_software_bitmap(prepared_image)
     result = await engine.recognize_async(bitmap)
     offset_x = 0 if window_rect is None else window_rect["left"]
     offset_y = 0 if window_rect is None else window_rect["top"]
@@ -57,15 +67,16 @@ async def recognize_image(image, window_rect=None, min_height=8):
     for line in result.lines:
         for word in line.words:
             box = word.bounding_rect
-            if box.height < min_height:
+            scaled_height = box.height / scale_factor
+            if scaled_height < min_height:
                 continue
             words.append(
                 {
                     "text": word.text,
-                    "x": int(offset_x + box.x),
-                    "y": int(offset_y + box.y),
-                    "w": int(box.width),
-                    "h": int(box.height),
+                    "x": int(offset_x + (box.x / scale_factor)),
+                    "y": int(offset_y + (box.y / scale_factor)),
+                    "w": int(box.width / scale_factor),
+                    "h": int(scaled_height),
                 }
             )
 
