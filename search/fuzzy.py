@@ -7,21 +7,19 @@ import config
 MIN_QUERY_LENGTH = getattr(config, "MIN_QUERY_LENGTH", 2)
 FUZZY_THRESHOLD = max(90, getattr(config, "FUZZY_THRESHOLD", 75))
 MAX_RESULTS = getattr(config, "MAX_RESULTS", 50)
-MIN_WORD_LENGTH = 3
-MIN_CONFIDENCE = 0.4
+MIN_WORD_LENGTH = 2
+MIN_CONFIDENCE = 0.2
 
 
 def is_viable_search_word(query, entry):
-    """Reject OCR noise before fuzzy matching."""
+    """Reject only the most obvious OCR noise before fuzzy matching."""
     word = entry["word"]
+    alnum_count = sum(char.isalnum() for char in word)
     if len(word) < MIN_WORD_LENGTH:
-        print(f"[FILTER] rejected word='{word}' reason=too_short")
         return False
     if entry.get("confidence", 1.0) < MIN_CONFIDENCE:
-        print(f"[FILTER] rejected word='{word}' reason=low_confidence")
         return False
-    if abs(len(word) - len(query)) > max(2, len(query) // 2):
-        print(f"[FILTER] rejected word='{word}' reason=length_mismatch")
+    if alnum_count < max(1, len(word) // 2):
         return False
     return True
 
@@ -32,10 +30,9 @@ def fuzzy_search(query, index, limit=MAX_RESULTS, threshold=FUZZY_THRESHOLD):
     if len(normalized_query) < MIN_QUERY_LENGTH:
         return []
 
-    filtered_entries = []
-    for entry in index:
-        if is_viable_search_word(normalized_query, entry):
-            filtered_entries.append(entry)
+    filtered_entries = [entry for entry in index if is_viable_search_word(normalized_query, entry)]
+    rejected_count = len(index) - len(filtered_entries)
+    print(f"[FILTER] accepted_candidates={len(filtered_entries)} rejected_candidates={rejected_count}")
 
     choices = [entry["word"] for entry in filtered_entries]
     matches = process.extract(
@@ -52,9 +49,8 @@ def fuzzy_search(query, index, limit=MAX_RESULTS, threshold=FUZZY_THRESHOLD):
         normalized_word = entry["word"]
         substring_match = normalized_query in normalized_word
         if not substring_match and float(score) < threshold:
-            print(f"[FILTER] rejected word='{normalized_word}' reason=low_similarity")
             continue
-        print(f"[FILTER] accepted word='{normalized_word}' score={float(score):.1f}")
         entry["fuzzy_score"] = float(score) / 100.0
         results.append(entry)
+    print(f"[FILTER] final_matches={len(results)}")
     return results
