@@ -14,12 +14,11 @@ MIN_CONFIDENCE = 0.2
 def is_viable_search_word(query, entry):
     """Reject only the most obvious OCR noise before fuzzy matching."""
     word = entry["word"]
-    alnum_count = sum(char.isalnum() for char in word)
     if len(word) < MIN_WORD_LENGTH:
         return False
     if entry.get("confidence", 1.0) < MIN_CONFIDENCE:
         return False
-    if alnum_count < max(1, len(word) // 2):
+    if not any(char.isalnum() for char in word):
         return False
     return True
 
