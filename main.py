@@ -39,6 +39,8 @@ class IntegratedSearchbarApp(SearchbarApp):
         self.search_token = 0
         self.latest_query = ""
         self.latest_fuzzy_results = []
+        self.last_draw_signature = None
+        self.ocr_ready = False
         super().__init__()
         self.index_queue = self.external_index_queue
         self.current_index = []
@@ -72,6 +74,15 @@ class IntegratedSearchbarApp(SearchbarApp):
         """Hide the overlay and clear any current highlights."""
         if self.visible:
             self.toggle_visibility()
+        self.last_draw_signature = None
+
+    def _set_matches(self, matches):
+        """Redraw only when the overlay input actually changed."""
+        signature = tuple((item["x"], item["y"], item["w"], item["h"], item.get("original", "")) for item in matches)
+        if signature == self.last_draw_signature:
+            return
+        self.last_draw_signature = signature
+        self.overlay.draw_matches(matches)
 
     def _apply_search(self):
         """Use fuzzy results immediately and semantic reranking asynchronously."""
@@ -81,6 +92,10 @@ class IntegratedSearchbarApp(SearchbarApp):
 
         query = self.entry.get().strip()
         self.latest_query = query
+        if not self.ocr_ready:
+            self.result_label.configure(text="Waiting for OCR...")
+            self.overlay.clear()
+            return
         if len(query) < 2:
             self.result_label.configure(text="0 matches")
             self.overlay.clear()
@@ -94,7 +109,7 @@ class IntegratedSearchbarApp(SearchbarApp):
         sample = fuzzy_results[0] if fuzzy_results else None
         print(f"[search] query={query!r} matches={len(fuzzy_results)} sample={sample}")
         self.result_label.configure(text=f"{len(fuzzy_results)} matches")
-        self.overlay.draw_matches(fuzzy_results)
+        self._set_matches(fuzzy_results)
 
         if self.ai_var.get():
             self.search_token += 1
@@ -114,6 +129,7 @@ class IntegratedSearchbarApp(SearchbarApp):
 
         updated = self._drain_latest_index()
         if updated is not None:
+            self.ocr_ready = True
             print(f"[MAIN] received index size: {len(updated)}")
             print(f"[main] received index with {len(updated)} words from OCR queue")
         if updated is not None and self.visible and len(self.entry.get().strip()) >= 2:
@@ -132,7 +148,7 @@ class IntegratedSearchbarApp(SearchbarApp):
         if latest is not None and latest["token"] == self.search_token and self.ai_var.get():
             merged = self._merge_results(self.latest_fuzzy_results, latest["results"])
             self.result_label.configure(text=f"{len(merged)} matches")
-            self.overlay.draw_matches(merged)
+            self._set_matches(merged)
 
         self.search_poll_job = self.after(POLL_MS, self._poll_semantic_results)
 
