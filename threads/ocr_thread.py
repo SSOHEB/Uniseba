@@ -38,6 +38,7 @@ class OCRThread(threading.Thread):
         self.current_image = None
         self.target_hwnd = None
         self.last_valid_hwnd = None
+        self.has_found_valid_target = False
         self.blocked_title_tokens = ("powershell", "uniseba", "debug", "python")
 
     def run(self):
@@ -49,6 +50,10 @@ class OCRThread(threading.Thread):
                 if image is None:
                     self.stop_event.wait(SCAN_INTERVAL_MS / 1000.0)
                     continue
+
+                if not self.has_found_valid_target:
+                    self.has_found_valid_target = True
+                    self.last_valid_hwnd = self.target_hwnd
 
                 changed = has_significant_change(self.current_image, image)
                 if not changed:
@@ -72,6 +77,18 @@ class OCRThread(threading.Thread):
 
     def _update_target_window(self):
         """Track the last foreground window that does not belong to Uniseba."""
+        if not self.has_found_valid_target:
+            preferred = self.preferred_hwnd()
+            if self._is_bootstrap_target(preferred):
+                self.target_hwnd = preferred
+                print(f"[OCR TARGET] bootstrap selecting preferred hwnd={preferred} title={win32gui.GetWindowText(preferred)!r}")
+                return
+            hwnd = win32gui.GetForegroundWindow()
+            if self._is_bootstrap_target(hwnd):
+                self.target_hwnd = hwnd
+                print(f"[OCR TARGET] bootstrap selecting hwnd={hwnd} title={win32gui.GetWindowText(hwnd)!r}")
+            return
+
         preferred = self.preferred_hwnd()
         if preferred and self._is_valid_target(preferred):
             self.target_hwnd = preferred
@@ -87,6 +104,22 @@ class OCRThread(threading.Thread):
         if self.last_valid_hwnd and self._is_valid_target(self.last_valid_hwnd):
             self.target_hwnd = self.last_valid_hwnd
             print(f"[OCR TARGET] fallback to last valid hwnd={self.last_valid_hwnd} title={win32gui.GetWindowText(self.last_valid_hwnd)!r}")
+
+    def _is_bootstrap_target(self, hwnd):
+        """Allow almost any visible non-minimized window until OCR starts once."""
+        if not hwnd or not win32gui.IsWindow(hwnd) or win32gui.IsIconic(hwnd):
+            print(f"[OCR TARGET] skipped invalid/minimized hwnd={hwnd}")
+            return False
+        if hwnd in self.excluded_hwnds():
+            print(f"[OCR TARGET] skipped owned bootstrap hwnd={hwnd}")
+            return False
+        left, top, right, bottom = win32gui.GetWindowRect(hwnd)
+        width = right - left
+        height = bottom - top
+        if width <= 0 or height <= 0:
+            print(f"[OCR TARGET] skipped invalid bootstrap size hwnd={hwnd}")
+            return False
+        return True
 
     def _is_valid_target(self, hwnd):
         """Reject invalid, minimized, or known Uniseba/debug windows."""
@@ -115,7 +148,10 @@ class OCRThread(threading.Thread):
     def _capture_target_window(self):
         """Capture the tracked foreground window using absolute screen coordinates."""
         hwnd = self.target_hwnd
-        if not self._is_valid_target(hwnd):
+        if not self.has_found_valid_target:
+            if not self._is_bootstrap_target(hwnd):
+                return None, None
+        elif not self._is_valid_target(hwnd):
             return None, None
 
         left, top, right, bottom = win32gui.GetWindowRect(hwnd)
@@ -124,7 +160,10 @@ class OCRThread(threading.Thread):
             return None, None
 
         rect = {"left": left, "top": top, "width": width, "height": height}
-        print(f"[OCR TARGET] capturing hwnd={hwnd} title={win32gui.GetWindowText(hwnd)!r} rect={rect}")
+        if not self.has_found_valid_target:
+            print(f"[OCR TARGET] bootstrap capturing hwnd={hwnd} title={win32gui.GetWindowText(hwnd)!r} rect={rect}")
+        else:
+            print(f"[OCR TARGET] capturing hwnd={hwnd} title={win32gui.GetWindowText(hwnd)!r} rect={rect}")
         with mss() as sct:
             shot = sct.grab(rect)
             image = Image.frombytes("RGB", shot.size, shot.rgb)
