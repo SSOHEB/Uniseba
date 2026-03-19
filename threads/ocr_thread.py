@@ -39,7 +39,7 @@ class OCRThread(threading.Thread):
         self.target_hwnd = None
         self.last_valid_hwnd = None
         self.has_found_valid_target = False
-        self.blocked_title_tokens = ("powershell", "uniseba", "debug", "python")
+        self.blocked_exact_titles = {"windows powershell", "uniseba search"}
 
     def run(self):
         """Keep OCR results fresh until the application exits."""
@@ -113,6 +113,11 @@ class OCRThread(threading.Thread):
         if hwnd in self.excluded_hwnds():
             print(f"[OCR TARGET] skipped owned bootstrap hwnd={hwnd}")
             return False
+        raw_title = win32gui.GetWindowText(hwnd).strip()
+        title = raw_title.lower()
+        if title in self.blocked_exact_titles or title.startswith("uniseba"):
+            print(f"[OCR TARGET] skipped blocked bootstrap title hwnd={hwnd} title={title!r}")
+            return False
         left, top, right, bottom = win32gui.GetWindowRect(hwnd)
         width = right - left
         height = bottom - top
@@ -134,8 +139,15 @@ class OCRThread(threading.Thread):
             print(f"[OCR TARGET] skipped empty title hwnd={hwnd}")
             return False
         title = raw_title.lower()
-        if any(token in title for token in self.blocked_title_tokens):
+        class_name = win32gui.GetClassName(hwnd).lower()
+        if title in self.blocked_exact_titles or title.startswith("uniseba"):
             print(f"[OCR TARGET] skipped blocked title hwnd={hwnd} title={title!r}")
+            return False
+        if class_name == "consolewindowclass" and ("powershell" in title or "python" in title):
+            print(
+                f"[OCR TARGET] skipped blocked console hwnd={hwnd} "
+                f"class={class_name!r} title={title!r}"
+            )
             return False
         left, top, right, bottom = win32gui.GetWindowRect(hwnd)
         width = right - left

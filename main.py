@@ -10,6 +10,7 @@ ctypes.windll.user32.SetProcessDPIAware()
 
 import config
 import keyboard
+import win32gui
 
 from search.fuzzy import fuzzy_search
 from threads.ocr_thread import OCRThread
@@ -67,8 +68,18 @@ class IntegratedSearchbarApp(SearchbarApp):
         """Expose Ctrl+Shift+U from the app entry point."""
         self.global_hotkey = keyboard.add_hotkey(
             "ctrl+shift+u",
-            lambda: self.after(0, self.toggle_visibility),
+            self._handle_global_shortcut,
         )
+
+    def _handle_global_shortcut(self):
+        """Capture the current foreground content window before Uniseba takes focus."""
+        hwnd = win32gui.GetForegroundWindow()
+        if hwnd and hwnd not in self.own_window_handles():
+            self.target_hwnd = hwnd
+            print(f"[MAIN] shortcut captured hwnd={hwnd} title={win32gui.GetWindowText(hwnd)!r}")
+        else:
+            print(f"[MAIN] shortcut ignored foreground hwnd={hwnd} title={win32gui.GetWindowText(hwnd) if hwnd else ''!r}")
+        self.after(0, self.toggle_visibility)
 
     def hide_overlay(self):
         """Hide the overlay and clear any current highlights."""

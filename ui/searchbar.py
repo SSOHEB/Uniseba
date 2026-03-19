@@ -179,9 +179,16 @@ class SearchbarApp(ctk.CTk):
 
     def _remember_target_window(self):
         """Remember the app window that was active before the search UI opened."""
+        if self.target_hwnd and win32gui.IsWindow(self.target_hwnd):
+            print(
+                f"[searchbar] preserving target hwnd={self.target_hwnd} "
+                f"title={win32gui.GetWindowText(self.target_hwnd)!r}"
+            )
+            return
         hwnd = win32gui.GetForegroundWindow()
         if hwnd and hwnd not in self._own_window_handles():
             self.target_hwnd = hwnd
+            print(f"[searchbar] remembered target hwnd={hwnd} title={win32gui.GetWindowText(hwnd)!r}")
 
     def _own_window_handles(self):
         """Return the top-level windows owned by the search UI."""
