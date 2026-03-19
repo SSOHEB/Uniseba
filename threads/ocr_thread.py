@@ -10,13 +10,17 @@ from mss import mss
 from PIL import Image
 import win32gui
 
-from capture.change import has_significant_change
+from capture.change import get_changed_regions
 from ocr.engine import recognize_image
 from ocr.index import build_ocr_index
 
-SCAN_INTERVAL_MS = getattr(config, "SCAN_INTERVAL_MS", 200)
+SCAN_INTERVAL_MS = getattr(config, "SCAN_INTERVAL_MS", 150)
 MIN_TARGET_WIDTH = 300
 MIN_TARGET_HEIGHT = 200
+CHANGE_GRID = getattr(config, "CHANGE_GRID", (4, 4))
+CHANGE_THRESHOLD = getattr(config, "CHANGE_THRESHOLD", 6.0)
+CHANGE_THUMB_SIZE = getattr(config, "CHANGE_THUMB_SIZE", (32, 32))
+OCR_DOWNSCALE = getattr(config, "OCR_DOWNSCALE", 0.75)
 
 
 class OCRThread(threading.Thread):
@@ -40,6 +44,7 @@ class OCRThread(threading.Thread):
         self.last_valid_hwnd = None
         self.has_found_valid_target = False
         self.blocked_exact_titles = {"windows powershell", "uniseba search"}
+        self.region_index_cache = {}
 
     def run(self):
         """Keep OCR results fresh until the application exits."""
@@ -55,20 +60,25 @@ class OCRThread(threading.Thread):
                     self.has_found_valid_target = True
                     self.last_valid_hwnd = self.target_hwnd
 
-                changed = has_significant_change(self.current_image, image)
-                if not changed:
+                changed_regions = get_changed_regions(
+                    self.current_image,
+                    image,
+                    grid=CHANGE_GRID,
+                    threshold=CHANGE_THRESHOLD,
+                    thumb_size=CHANGE_THUMB_SIZE,
+                )
+                total_regions = CHANGE_GRID[0] * CHANGE_GRID[1]
+                if not changed_regions:
+                    print(f"[CHANGE] regions_changed=0/{total_regions}")
                     print("[CHANGE] no change -> skipping OCR")
+                    self.current_image = image
                     self.stop_event.wait(SCAN_INTERVAL_MS / 1000.0)
                     continue
 
-                print("[CHANGE] detected -> running OCR")
+                print(f"[CHANGE] regions_changed={len(changed_regions)}/{total_regions}")
                 self.current_image = image
-                words = asyncio.run(recognize_image(image, rect))
-                index = build_ocr_index(words)
-                print(f"[OCR] words extracted: {len(index)}")
-                if len(index) > 0:
-                    print("[OCR SAMPLE]", index[:5])
-                print(f"[ocr_thread] queue put index words={len(index)} rect={rect}")
+                index = asyncio.run(self._build_partial_index(image, rect, changed_regions))
+                print(f"[OCR] partial_regions={len(changed_regions)} total_words={len(index)}")
                 self.index_queue.put(index)
             except Exception:
                 self.logger.exception("OCR thread failed while updating the index.")
@@ -180,3 +190,43 @@ class OCRThread(threading.Thread):
             shot = sct.grab(rect)
             image = Image.frombytes("RGB", shot.size, shot.rgb)
         return image, rect
+
+    async def _build_partial_index(self, image, rect, changed_regions):
+        """OCR only changed regions and reuse cached OCR results for stable areas."""
+        for region in changed_regions:
+            key = (
+                region["left"],
+                region["top"],
+                region["width"],
+                region["height"],
+            )
+            region_box = (
+                region["left"],
+                region["top"],
+                region["left"] + region["width"],
+                region["top"] + region["height"],
+            )
+            region_image = image.crop(region_box)
+            region_image = self._prepare_region_image(region_image)
+            region_rect = {
+                "left": rect["left"] + region["left"],
+                "top": rect["top"] + region["top"],
+                "width": region_image.width,
+                "height": region_image.height,
+            }
+            words = await recognize_image(region_image, region_rect)
+            self.region_index_cache[key] = build_ocr_index(words)
+
+        deduped = {}
+        for region_words in self.region_index_cache.values():
+            for item in region_words:
+                deduped[(item["word"], item["x"], item["y"], item["w"], item["h"])] = item
+        return list(deduped.values())
+
+    def _prepare_region_image(self, image):
+        """Slightly downscale OCR regions so partial passes stay lightweight."""
+        if OCR_DOWNSCALE >= 0.99:
+            return image
+        width = max(1, int(image.width * OCR_DOWNSCALE))
+        height = max(1, int(image.height * OCR_DOWNSCALE))
+        return image.resize((width, height), Image.Resampling.LANCZOS)
