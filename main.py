@@ -42,6 +42,7 @@ class IntegratedSearchbarApp(SearchbarApp):
         self.latest_fuzzy_results = []
         self.last_draw_signature = None
         self.ocr_ready = False
+        self.locked_hwnd = None
         super().__init__()
         self.index_queue = self.external_index_queue
         self.current_index = []
@@ -76,7 +77,9 @@ class IntegratedSearchbarApp(SearchbarApp):
         hwnd = win32gui.GetForegroundWindow()
         if hwnd and hwnd not in self.own_window_handles():
             self.target_hwnd = hwnd
+            self.locked_hwnd = hwnd
             print(f"[MAIN] shortcut captured hwnd={hwnd} title={win32gui.GetWindowText(hwnd)!r}")
+            print(f"[TARGET LOCKED] hwnd={hwnd} title={win32gui.GetWindowText(hwnd)!r}")
         else:
             print(f"[MAIN] shortcut ignored foreground hwnd={hwnd} title={win32gui.GetWindowText(hwnd) if hwnd else ''!r}")
         self.after(0, self.toggle_visibility)
@@ -86,6 +89,14 @@ class IntegratedSearchbarApp(SearchbarApp):
         if self.visible:
             self.toggle_visibility()
         self.last_draw_signature = None
+        self.locked_hwnd = None
+
+    def _on_query_changed(self, event=None):
+        """Keep OCR pinned to the chosen content window while the user is searching."""
+        if self.visible and self.target_hwnd and win32gui.IsWindow(self.target_hwnd):
+            self.locked_hwnd = self.target_hwnd
+            print(f"[TARGET LOCKED] hwnd={self.locked_hwnd} title={win32gui.GetWindowText(self.locked_hwnd)!r}")
+        super()._on_query_changed(event)
 
     def _set_matches(self, matches):
         """Redraw only when the overlay input actually changed."""
@@ -255,7 +266,8 @@ def main():
         index_queue,
         stop_event,
         excluded_hwnds=app.own_window_handles,
-        preferred_hwnd=lambda: app.target_hwnd,
+        preferred_hwnd=lambda: app.locked_hwnd or app.target_hwnd,
+        lock_active=lambda: app.locked_hwnd is not None,
     )
     semantic_thread = SearchThread(semantic_request_queue, semantic_result_queue, stop_event)
     ocr_thread.start()

@@ -35,12 +35,14 @@ class OCRThread(threading.Thread):
         stop_event: threading.Event,
         excluded_hwnds=None,
         preferred_hwnd=None,
+        lock_active=None,
     ):
         super().__init__(daemon=True, name="UnisebaOCR")
         self.index_queue = index_queue
         self.stop_event = stop_event
         self.excluded_hwnds = excluded_hwnds or (lambda: set())
         self.preferred_hwnd = preferred_hwnd or (lambda: None)
+        self.lock_active = lock_active or (lambda: False)
         self.logger = logging.getLogger("uniseba")
         self.current_image = None
         self.target_hwnd = None
@@ -116,6 +118,21 @@ class OCRThread(threading.Thread):
             if self._is_bootstrap_target(hwnd):
                 self.target_hwnd = hwnd
                 print(f"[OCR TARGET] bootstrap selecting hwnd={hwnd} title={win32gui.GetWindowText(hwnd)!r}")
+            return
+
+        if self.lock_active():
+            preferred = self.preferred_hwnd()
+            if preferred and self._is_valid_target(preferred):
+                self.target_hwnd = preferred
+                self.last_valid_hwnd = preferred
+                print(f"[TARGET LOCKED] hwnd={preferred} title={win32gui.GetWindowText(preferred)!r}")
+                return
+            ignored = win32gui.GetForegroundWindow()
+            if ignored:
+                print(f"[TARGET IGNORED] hwnd={ignored} title={win32gui.GetWindowText(ignored)!r}")
+            if self.last_valid_hwnd and self._is_valid_target(self.last_valid_hwnd):
+                self.target_hwnd = self.last_valid_hwnd
+                print(f"[OCR TARGET] fallback to last valid hwnd={self.last_valid_hwnd} title={win32gui.GetWindowText(self.last_valid_hwnd)!r}")
             return
 
         preferred = self.preferred_hwnd()
