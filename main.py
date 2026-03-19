@@ -266,7 +266,8 @@ def main():
         index_queue,
         stop_event,
         excluded_hwnds=app.own_window_handles,
-        preferred_hwnd=lambda: app.locked_hwnd or app.target_hwnd,
+        preferred_hwnd=lambda: app.target_hwnd,
+        locked_hwnd=lambda: app.locked_hwnd,
         lock_active=lambda: app.locked_hwnd is not None,
     )
     semantic_thread = SearchThread(semantic_request_queue, semantic_result_queue, stop_event)
