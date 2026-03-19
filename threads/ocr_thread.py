@@ -37,6 +37,7 @@ class OCRThread(threading.Thread):
         self.logger = logging.getLogger("uniseba")
         self.current_image = None
         self.target_hwnd = None
+        self.last_valid_hwnd = None
         self.blocked_title_tokens = ("powershell", "uniseba", "debug", "python")
 
     def run(self):
@@ -74,15 +75,18 @@ class OCRThread(threading.Thread):
         preferred = self.preferred_hwnd()
         if preferred and self._is_valid_target(preferred):
             self.target_hwnd = preferred
+            self.last_valid_hwnd = preferred
             print(f"[OCR TARGET] preferred hwnd={preferred} title={win32gui.GetWindowText(preferred)!r}")
             return
         hwnd = win32gui.GetForegroundWindow()
         if hwnd and self._is_valid_target(hwnd):
             self.target_hwnd = hwnd
+            self.last_valid_hwnd = hwnd
             print(f"[OCR TARGET] foreground hwnd={hwnd} title={win32gui.GetWindowText(hwnd)!r}")
             return
-        if self.target_hwnd and self._is_valid_target(self.target_hwnd):
-            print(f"[OCR TARGET] fallback to last valid hwnd={self.target_hwnd} title={win32gui.GetWindowText(self.target_hwnd)!r}")
+        if self.last_valid_hwnd and self._is_valid_target(self.last_valid_hwnd):
+            self.target_hwnd = self.last_valid_hwnd
+            print(f"[OCR TARGET] fallback to last valid hwnd={self.last_valid_hwnd} title={win32gui.GetWindowText(self.last_valid_hwnd)!r}")
 
     def _is_valid_target(self, hwnd):
         """Reject invalid, minimized, or known Uniseba/debug windows."""
