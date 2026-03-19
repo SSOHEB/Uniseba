@@ -193,6 +193,7 @@ class OCRThread(threading.Thread):
 
     async def _build_partial_index(self, image, rect, changed_regions):
         """OCR only changed regions and reuse cached OCR results for stable areas."""
+        scale_back = 1.0 / max(OCR_DOWNSCALE, 0.01)
         for region in changed_regions:
             key = (
                 region["left"],
@@ -208,14 +209,25 @@ class OCRThread(threading.Thread):
             )
             region_image = image.crop(region_box)
             region_image = self._prepare_region_image(region_image)
-            region_rect = {
-                "left": rect["left"] + region["left"],
-                "top": rect["top"] + region["top"],
-                "width": region_image.width,
-                "height": region_image.height,
-            }
-            words = await recognize_image(region_image, region_rect)
-            self.region_index_cache[key] = build_ocr_index(words)
+            words = await recognize_image(region_image, None)
+            transformed_words = []
+            for word in words:
+                raw_x = int(word["x"])
+                raw_y = int(word["y"])
+                screen_x = int(rect["left"] + region["left"] + (raw_x * scale_back))
+                screen_y = int(rect["top"] + region["top"] + (raw_y * scale_back))
+                transformed_words.append(
+                    {
+                        "text": word["text"],
+                        "x": screen_x,
+                        "y": screen_y,
+                        "w": int(word["w"] * scale_back),
+                        "h": int(word["h"] * scale_back),
+                        "raw_x": raw_x,
+                        "raw_y": raw_y,
+                    }
+                )
+            self.region_index_cache[key] = build_ocr_index(transformed_words)
 
         deduped = {}
         for region_words in self.region_index_cache.values():

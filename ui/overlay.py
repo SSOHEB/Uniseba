@@ -82,6 +82,20 @@ class OverlayWindow:
             y1 = int(item["y"])
             x2 = x1 + int(item["w"])
             y2 = y1 + int(item["h"])
+            print(
+                f"[DRAW] word={item.get('original', '')!r} "
+                f"raw=({int(item.get('raw_x', x1))},{int(item.get('raw_y', y1))}) "
+                f"final=({x1},{y1})"
+            )
+            self.canvas.create_oval(
+                x1 - 2,
+                y1 - 2,
+                x1 + 2,
+                y1 + 2,
+                fill=HIGHLIGHT_COLOR,
+                outline=HIGHLIGHT_COLOR,
+                tags="highlight",
+            )
             self.canvas.create_rectangle(
                 x1,
                 y1,

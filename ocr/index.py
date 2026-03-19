@@ -29,6 +29,8 @@ def build_ocr_index(words):
                 "w": int(word["w"]),
                 "h": height,
                 "confidence": confidence,
+                "raw_x": int(word.get("raw_x", word["x"])),
+                "raw_y": int(word.get("raw_y", word["y"])),
             }
         )
     print(f"[OCR CLEANUP] filtered OCR word count: {len(index)}")
