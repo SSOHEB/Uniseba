@@ -3,6 +3,7 @@
 import asyncio
 import logging
 import threading
+import time
 from queue import Queue
 
 import config
@@ -21,6 +22,8 @@ CHANGE_GRID = getattr(config, "CHANGE_GRID", (4, 4))
 CHANGE_THRESHOLD = getattr(config, "CHANGE_THRESHOLD", 6.0)
 CHANGE_THUMB_SIZE = getattr(config, "CHANGE_THUMB_SIZE", (32, 32))
 OCR_DOWNSCALE = getattr(config, "OCR_DOWNSCALE", 0.75)
+OCR_UPDATE_DEBOUNCE_MS = getattr(config, "OCR_UPDATE_DEBOUNCE_MS", 350)
+OCR_STABILITY_COUNT_THRESHOLD = getattr(config, "OCR_STABILITY_COUNT_THRESHOLD", 20)
 
 
 class OCRThread(threading.Thread):
@@ -45,6 +48,8 @@ class OCRThread(threading.Thread):
         self.has_found_valid_target = False
         self.blocked_exact_titles = {"windows powershell", "uniseba search"}
         self.region_index_cache = {}
+        self.last_stable_index = []
+        self.last_update_at = 0.0
 
     def run(self):
         """Keep OCR results fresh until the application exits."""
@@ -77,7 +82,21 @@ class OCRThread(threading.Thread):
 
                 print(f"[CHANGE] regions_changed={len(changed_regions)}/{total_regions}")
                 self.current_image = image
+                now = time.monotonic()
+                if now - self.last_update_at < (OCR_UPDATE_DEBOUNCE_MS / 1000.0):
+                    print("[OCR] debounced -> skipping update")
+                    self.stop_event.wait(SCAN_INTERVAL_MS / 1000.0)
+                    continue
+
                 index = asyncio.run(self._build_partial_index(image, rect, changed_regions))
+                index = self._stabilize_index(index)
+                if index is None:
+                    print("[OCR] unstable frame -> keeping last stable index")
+                    self.stop_event.wait(SCAN_INTERVAL_MS / 1000.0)
+                    continue
+
+                self.last_stable_index = index
+                self.last_update_at = now
                 print(f"[OCR] partial_regions={len(changed_regions)} total_words={len(index)}")
                 self.index_queue.put(index)
             except Exception:
@@ -238,3 +257,37 @@ class OCRThread(threading.Thread):
         width = max(1, int(image.width * OCR_DOWNSCALE))
         height = max(1, int(image.height * OCR_DOWNSCALE))
         return image.resize((width, height), Image.Resampling.LANCZOS)
+
+    def _stabilize_index(self, new_index):
+        """Reject wildly different frames and smooth matching word positions."""
+        old_index = self.last_stable_index
+        if not old_index:
+            return new_index
+
+        if abs(len(new_index) - len(old_index)) > OCR_STABILITY_COUNT_THRESHOLD:
+            return None
+
+        old_lookup = {}
+        for item in old_index:
+            old_lookup.setdefault(item["word"], []).append(item)
+
+        stabilized = []
+        for item in new_index:
+            previous = self._find_previous_match(item, old_lookup.get(item["word"], []))
+            if previous is not None:
+                item = {
+                    **item,
+                    "x": int((previous["x"] + item["x"]) / 2),
+                    "y": int((previous["y"] + item["y"]) / 2),
+                }
+            stabilized.append(item)
+        return stabilized
+
+    def _find_previous_match(self, item, candidates):
+        """Find the closest prior word with the same normalized text."""
+        if not candidates:
+            return None
+        return min(
+            candidates,
+            key=lambda candidate: abs(candidate["x"] - item["x"]) + abs(candidate["y"] - item["y"]),
+        )
