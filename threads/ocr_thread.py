@@ -20,11 +20,12 @@ SCAN_INTERVAL_MS = getattr(config, "SCAN_INTERVAL_MS", 150)
 MIN_TARGET_WIDTH = 300
 MIN_TARGET_HEIGHT = 200
 CHANGE_GRID = getattr(config, "CHANGE_GRID", (4, 4))
-CHANGE_THRESHOLD = getattr(config, "CHANGE_THRESHOLD", 6.0)
+CHANGE_THRESHOLD = getattr(config, "CHANGE_THRESHOLD", 3.0)
 CHANGE_THUMB_SIZE = getattr(config, "CHANGE_THUMB_SIZE", (32, 32))
 OCR_DOWNSCALE = getattr(config, "OCR_DOWNSCALE", 0.75)
-OCR_UPDATE_DEBOUNCE_MS = getattr(config, "OCR_UPDATE_DEBOUNCE_MS", 350)
+OCR_UPDATE_DEBOUNCE_MS = getattr(config, "OCR_UPDATE_DEBOUNCE_MS", 120)
 OCR_STABILITY_COUNT_THRESHOLD = getattr(config, "OCR_STABILITY_COUNT_THRESHOLD", 20)
+FORCED_OCR_INTERVAL_MS = getattr(config, "FORCED_OCR_INTERVAL_MS", 500)
 
 
 class OCRThread(threading.Thread):
@@ -55,6 +56,7 @@ class OCRThread(threading.Thread):
         self.region_index_cache = {}
         self.last_stable_index = []
         self.last_update_at = 0.0
+        self.last_forced_ocr_at = 0.0
 
     def run(self):
         """Keep OCR results fresh until the application exits."""
@@ -78,16 +80,31 @@ class OCRThread(threading.Thread):
                     thumb_size=CHANGE_THUMB_SIZE,
                 )
                 total_regions = CHANGE_GRID[0] * CHANGE_GRID[1]
-                if not changed_regions:
+                now = time.monotonic()
+                force_refresh = (
+                    self.last_forced_ocr_at == 0.0
+                    or now - self.last_forced_ocr_at >= (FORCED_OCR_INTERVAL_MS / 1000.0)
+                )
+                if not changed_regions and not force_refresh:
                     print(f"[CHANGE] regions_changed=0/{total_regions}")
                     print("[CHANGE] no change -> skipping OCR")
                     self.current_image = image
                     self.stop_event.wait(SCAN_INTERVAL_MS / 1000.0)
                     continue
 
-                print(f"[CHANGE] regions_changed={len(changed_regions)}/{total_regions}")
+                if force_refresh and not changed_regions:
+                    changed_regions = [
+                        {
+                            "left": 0,
+                            "top": 0,
+                            "width": image.width,
+                            "height": image.height,
+                        }
+                    ]
+                    print(f"[CHANGE] regions_changed=1/{total_regions} forced_refresh=1")
+                else:
+                    print(f"[CHANGE] regions_changed={len(changed_regions)}/{total_regions}")
                 self.current_image = image
-                now = time.monotonic()
                 if now - self.last_update_at < (OCR_UPDATE_DEBOUNCE_MS / 1000.0):
                     print("[OCR] debounced -> skipping update")
                     self.stop_event.wait(SCAN_INTERVAL_MS / 1000.0)
@@ -102,6 +119,7 @@ class OCRThread(threading.Thread):
 
                 self.last_stable_index = index
                 self.last_update_at = now
+                self.last_forced_ocr_at = now
                 print(f"[OCR] partial_regions={len(changed_regions)} total_words={len(index)}")
                 self.index_queue.put(index)
             except Exception:
