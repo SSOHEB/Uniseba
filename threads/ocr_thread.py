@@ -50,7 +50,6 @@ class OCRThread(threading.Thread):
         self.logger = logging.getLogger("uniseba")
         self.current_image = None
         self.target_hwnd = None
-        self.last_valid_hwnd = None
         self.has_found_valid_target = False
         self.blocked_exact_titles = {"windows powershell", "uniseba search"}
         self.region_index_cache = {}
@@ -70,7 +69,6 @@ class OCRThread(threading.Thread):
 
                 if not self.has_found_valid_target:
                     self.has_found_valid_target = True
-                    self.last_valid_hwnd = self.target_hwnd
 
                 changed_regions = get_changed_regions(
                     self.current_image,
@@ -129,41 +127,26 @@ class OCRThread(threading.Thread):
 
     def _update_target_window(self):
         """Track the last foreground window that does not belong to Uniseba."""
-        if self.lock_active():
-            locked = self._normalize_hwnd(self.locked_hwnd())
-            self.target_hwnd = locked
-            if locked:
-                print(f"[OCR USING LOCKED] hwnd={locked} title={win32gui.GetWindowText(locked)!r}")
-            return
-
+        hwnd = self._normalize_hwnd(win32gui.GetForegroundWindow())
         if not self.has_found_valid_target:
-            preferred = self._normalize_hwnd(self.preferred_hwnd())
-            if self._is_bootstrap_target(preferred):
-                self.target_hwnd = preferred
-                print(f"[OCR TARGET] bootstrap selecting preferred hwnd={preferred} title={win32gui.GetWindowText(preferred)!r}")
-                return
-            hwnd = self._normalize_hwnd(win32gui.GetForegroundWindow())
-            if self._is_bootstrap_target(hwnd):
+            if hwnd and self._is_bootstrap_target(hwnd):
                 self.target_hwnd = hwnd
-                print(f"[OCR TARGET] bootstrap selecting hwnd={hwnd} title={win32gui.GetWindowText(hwnd)!r}")
+                print(f"[OCR TARGET] selected hwnd={hwnd} title={win32gui.GetWindowText(hwnd)!r}")
+                return
+            preferred = self._normalize_hwnd(self.preferred_hwnd())
+            if preferred and self._is_bootstrap_target(preferred):
+                self.target_hwnd = preferred
+                print(f"[OCR TARGET] selected hwnd={preferred} title={win32gui.GetWindowText(preferred)!r}")
             return
 
+        if hwnd and self._is_valid_target(hwnd):
+            self.target_hwnd = hwnd
+            print(f"[OCR TARGET] selected hwnd={hwnd} title={win32gui.GetWindowText(hwnd)!r}")
+            return
         preferred = self._normalize_hwnd(self.preferred_hwnd())
         if preferred and self._is_valid_target(preferred):
             self.target_hwnd = preferred
-            self.last_valid_hwnd = preferred
-            print(f"[OCR TARGET] preferred hwnd={preferred} title={win32gui.GetWindowText(preferred)!r}")
-            return
-        hwnd = self._normalize_hwnd(win32gui.GetForegroundWindow())
-        if hwnd and self._is_valid_target(hwnd):
-            self.target_hwnd = hwnd
-            self.last_valid_hwnd = hwnd
-            print(f"[OCR TARGET] foreground hwnd={hwnd} title={win32gui.GetWindowText(hwnd)!r}")
-            return
-        last_valid = self._normalize_hwnd(self.last_valid_hwnd)
-        if last_valid and self._is_valid_target(last_valid):
-            self.target_hwnd = last_valid
-            print(f"[OCR TARGET] fallback to last valid hwnd={last_valid} title={win32gui.GetWindowText(last_valid)!r}")
+            print(f"[OCR TARGET] selected hwnd={preferred} title={win32gui.GetWindowText(preferred)!r}")
 
     def _is_bootstrap_target(self, hwnd):
         """Allow almost any visible non-minimized window until OCR starts once."""
@@ -175,6 +158,9 @@ class OCRThread(threading.Thread):
             return False
         raw_title = win32gui.GetWindowText(hwnd).strip()
         title = raw_title.lower()
+        if "program manager" in title:
+            print(f"[OCR TARGET] skipped desktop hwnd={hwnd} title={title!r}")
+            return False
         if title in self.blocked_exact_titles or title.startswith("uniseba"):
             print(f"[OCR TARGET] skipped blocked bootstrap title hwnd={hwnd} title={title!r}")
             return False
@@ -199,6 +185,9 @@ class OCRThread(threading.Thread):
             print(f"[OCR TARGET] skipped empty title hwnd={hwnd}")
             return False
         title = raw_title.lower()
+        if "program manager" in title:
+            print(f"[OCR TARGET] skipped desktop hwnd={hwnd} title={title!r}")
+            return False
         class_name = win32gui.GetClassName(hwnd).lower()
         if title in self.blocked_exact_titles or title.startswith("uniseba"):
             print(f"[OCR TARGET] skipped blocked title hwnd={hwnd} title={title!r}")
@@ -223,12 +212,7 @@ class OCRThread(threading.Thread):
     def _capture_target_window(self):
         """Capture the tracked foreground window using absolute screen coordinates."""
         hwnd = self._normalize_hwnd(self.target_hwnd)
-        if self.lock_active():
-            if not hwnd or not win32gui.IsWindow(hwnd) or win32gui.IsIconic(hwnd):
-                print(f"[TARGET IGNORED] hwnd={hwnd} title={win32gui.GetWindowText(hwnd) if hwnd and win32gui.IsWindow(hwnd) else ''!r}")
-                return None, None
-            print(f"[OCR USING LOCKED] hwnd={hwnd} title={win32gui.GetWindowText(hwnd)!r}")
-        elif not self.has_found_valid_target:
+        if not self.has_found_valid_target:
             if not self._is_bootstrap_target(hwnd):
                 return None, None
         elif not self._is_valid_target(hwnd):
