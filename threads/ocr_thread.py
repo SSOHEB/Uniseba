@@ -160,12 +160,12 @@ class OCRThread(threading.Thread):
         if title in self.blocked_exact_titles or title.startswith("uniseba"):
             print(f"[OCR TARGET] skipped blocked bootstrap title hwnd={hwnd} title={title!r}")
             return False
-        left, top, right, bottom = win32gui.GetWindowRect(hwnd)
-        width = right - left
-        height = bottom - top
-        if width <= 0 or height <= 0:
+        rect = self._get_full_window_rect(hwnd)
+        if rect is None:
             print(f"[OCR TARGET] skipped invalid bootstrap size hwnd={hwnd}")
             return False
+        width = rect["width"]
+        height = rect["height"]
         return True
 
     def _is_valid_target(self, hwnd):
@@ -191,9 +191,12 @@ class OCRThread(threading.Thread):
                 f"class={class_name!r} title={title!r}"
             )
             return False
-        left, top, right, bottom = win32gui.GetWindowRect(hwnd)
-        width = right - left
-        height = bottom - top
+        rect = self._get_full_window_rect(hwnd)
+        if rect is None:
+            print(f"[OCR TARGET] skipped invalid size hwnd={hwnd}")
+            return False
+        width = rect["width"]
+        height = rect["height"]
         if width < MIN_TARGET_WIDTH or height < MIN_TARGET_HEIGHT:
             print(f"[OCR TARGET] skipped small window hwnd={hwnd} size={width}x{height}")
             return False
@@ -213,12 +216,12 @@ class OCRThread(threading.Thread):
         elif not self._is_valid_target(hwnd):
             return None, None
 
-        left, top, right, bottom = win32gui.GetWindowRect(hwnd)
-        width, height = right - left, bottom - top
-        if width <= 0 or height <= 0:
+        rect = self._get_full_window_rect(hwnd)
+        if rect is None:
             return None, None
 
-        rect = {"left": left, "top": top, "width": width, "height": height}
+        width = rect["width"]
+        height = rect["height"]
         print(f"[OCR REGION] width={width} height={height}")
         if not self.has_found_valid_target:
             print(f"[OCR TARGET] bootstrap capturing hwnd={hwnd} title={win32gui.GetWindowText(hwnd)!r} rect={rect}")
@@ -235,6 +238,17 @@ class OCRThread(threading.Thread):
             return hwnd
         root = win32gui.GetAncestor(hwnd, win32con.GA_ROOT)
         return root or hwnd
+
+    def _get_full_window_rect(self, hwnd):
+        """Return the full top-level window bounds for OCR capture."""
+        if not hwnd or not win32gui.IsWindow(hwnd):
+            return None
+        left, top, right, bottom = win32gui.GetWindowRect(hwnd)
+        width = right - left
+        height = bottom - top
+        if width <= 0 or height <= 0:
+            return None
+        return {"left": left, "top": top, "width": width, "height": height}
 
     async def _build_partial_index(self, image, rect, changed_regions):
         """OCR only changed regions and reuse cached OCR results for stable areas."""
