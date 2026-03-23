@@ -9,6 +9,7 @@ from queue import Queue
 import config
 from mss import mss
 from PIL import Image
+import win32con
 import win32gui
 
 from capture.change import get_changed_regions
@@ -111,39 +112,40 @@ class OCRThread(threading.Thread):
     def _update_target_window(self):
         """Track the last foreground window that does not belong to Uniseba."""
         if self.lock_active():
-            locked = self.locked_hwnd()
+            locked = self._normalize_hwnd(self.locked_hwnd())
             self.target_hwnd = locked
             if locked:
                 print(f"[OCR USING LOCKED] hwnd={locked} title={win32gui.GetWindowText(locked)!r}")
             return
 
         if not self.has_found_valid_target:
-            preferred = self.preferred_hwnd()
+            preferred = self._normalize_hwnd(self.preferred_hwnd())
             if self._is_bootstrap_target(preferred):
                 self.target_hwnd = preferred
                 print(f"[OCR TARGET] bootstrap selecting preferred hwnd={preferred} title={win32gui.GetWindowText(preferred)!r}")
                 return
-            hwnd = win32gui.GetForegroundWindow()
+            hwnd = self._normalize_hwnd(win32gui.GetForegroundWindow())
             if self._is_bootstrap_target(hwnd):
                 self.target_hwnd = hwnd
                 print(f"[OCR TARGET] bootstrap selecting hwnd={hwnd} title={win32gui.GetWindowText(hwnd)!r}")
             return
 
-        preferred = self.preferred_hwnd()
+        preferred = self._normalize_hwnd(self.preferred_hwnd())
         if preferred and self._is_valid_target(preferred):
             self.target_hwnd = preferred
             self.last_valid_hwnd = preferred
             print(f"[OCR TARGET] preferred hwnd={preferred} title={win32gui.GetWindowText(preferred)!r}")
             return
-        hwnd = win32gui.GetForegroundWindow()
+        hwnd = self._normalize_hwnd(win32gui.GetForegroundWindow())
         if hwnd and self._is_valid_target(hwnd):
             self.target_hwnd = hwnd
             self.last_valid_hwnd = hwnd
             print(f"[OCR TARGET] foreground hwnd={hwnd} title={win32gui.GetWindowText(hwnd)!r}")
             return
-        if self.last_valid_hwnd and self._is_valid_target(self.last_valid_hwnd):
-            self.target_hwnd = self.last_valid_hwnd
-            print(f"[OCR TARGET] fallback to last valid hwnd={self.last_valid_hwnd} title={win32gui.GetWindowText(self.last_valid_hwnd)!r}")
+        last_valid = self._normalize_hwnd(self.last_valid_hwnd)
+        if last_valid and self._is_valid_target(last_valid):
+            self.target_hwnd = last_valid
+            print(f"[OCR TARGET] fallback to last valid hwnd={last_valid} title={win32gui.GetWindowText(last_valid)!r}")
 
     def _is_bootstrap_target(self, hwnd):
         """Allow almost any visible non-minimized window until OCR starts once."""
@@ -199,7 +201,7 @@ class OCRThread(threading.Thread):
 
     def _capture_target_window(self):
         """Capture the tracked foreground window using absolute screen coordinates."""
-        hwnd = self.target_hwnd
+        hwnd = self._normalize_hwnd(self.target_hwnd)
         if self.lock_active():
             if not hwnd or not win32gui.IsWindow(hwnd) or win32gui.IsIconic(hwnd):
                 print(f"[TARGET IGNORED] hwnd={hwnd} title={win32gui.GetWindowText(hwnd) if hwnd and win32gui.IsWindow(hwnd) else ''!r}")
@@ -217,6 +219,7 @@ class OCRThread(threading.Thread):
             return None, None
 
         rect = {"left": left, "top": top, "width": width, "height": height}
+        print(f"[OCR REGION] width={width} height={height}")
         if not self.has_found_valid_target:
             print(f"[OCR TARGET] bootstrap capturing hwnd={hwnd} title={win32gui.GetWindowText(hwnd)!r} rect={rect}")
         else:
@@ -225,6 +228,13 @@ class OCRThread(threading.Thread):
             shot = sct.grab(rect)
             image = Image.frombytes("RGB", shot.size, shot.rgb)
         return image, rect
+
+    def _normalize_hwnd(self, hwnd):
+        """Promote child/owned windows to their top-level root window before capture."""
+        if not hwnd or not win32gui.IsWindow(hwnd):
+            return hwnd
+        root = win32gui.GetAncestor(hwnd, win32con.GA_ROOT)
+        return root or hwnd
 
     async def _build_partial_index(self, image, rect, changed_regions):
         """OCR only changed regions and reuse cached OCR results for stable areas."""
