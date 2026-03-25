@@ -174,7 +174,18 @@ class OCRThread(threading.Thread):
         if hwnd in self.excluded_hwnds():
             self.logger.debug("Rejected bootstrap target hwnd=%s because it belongs to Uniseba", hwnd)
             return False
+        class_name = win32gui.GetClassName(hwnd)
+        if class_name in {"Progman", "WorkerW"}:
+            self.logger.debug(
+                "Rejected bootstrap target hwnd=%s class=%r because it is a desktop shell window",
+                hwnd,
+                class_name,
+            )
+            return False
         raw_title = win32gui.GetWindowText(hwnd).strip()
+        if not raw_title:
+            self.logger.debug("Rejected bootstrap target hwnd=%s because the title is empty", hwnd)
+            return False
         title = raw_title.lower()
         if DESKTOP_WINDOW_KEYWORD in title:
             self.logger.debug("Rejected bootstrap target hwnd=%s title=%r because it is the desktop", hwnd, title)
@@ -196,6 +207,14 @@ class OCRThread(threading.Thread):
         if hwnd in self.excluded_hwnds():
             self.logger.debug("Rejected OCR target hwnd=%s because it belongs to Uniseba", hwnd)
             return False
+        class_name = win32gui.GetClassName(hwnd)
+        if class_name in {"Progman", "WorkerW"}:
+            self.logger.debug(
+                "Rejected OCR target hwnd=%s class=%r because it is a desktop shell window",
+                hwnd,
+                class_name,
+            )
+            return False
         raw_title = win32gui.GetWindowText(hwnd).strip()
         if len(raw_title) < MIN_TARGET_TITLE_LENGTH:
             self.logger.debug("Rejected OCR target hwnd=%s because the title is too short", hwnd)
@@ -204,7 +223,7 @@ class OCRThread(threading.Thread):
         if DESKTOP_WINDOW_KEYWORD in title:
             self.logger.debug("Rejected OCR target hwnd=%s title=%r because it is the desktop", hwnd, title)
             return False
-        class_name = win32gui.GetClassName(hwnd).lower()
+        class_name = class_name.lower()
         if title in self.blocked_exact_titles or title.startswith(BLOCKED_WINDOW_PREFIXES):
             self.logger.debug("Rejected OCR target hwnd=%s title=%r because it is blocked", hwnd, title)
             return False
