@@ -41,7 +41,7 @@ async def _image_to_software_bitmap(image):
     return await decoder.get_software_bitmap_async()
 
 
-def _prepare_image_for_ocr(image, scale_factor=3):
+def _prepare_image_for_ocr(image, scale_factor=2):
     """Upscale and normalize the image so small text is easier to detect."""
     width = max(1, image.width * scale_factor)
     height = max(1, image.height * scale_factor)

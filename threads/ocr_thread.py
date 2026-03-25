@@ -302,7 +302,6 @@ class OCRThread(threading.Thread):
     async def _build_partial_index(self, image, rect, changed_regions):
         """OCR only changed regions and reuse cached OCR results for stable areas."""
         scale_back = 1.0 / max(OCR_DOWNSCALE, 0.01)
-        pad = 10
         for region in changed_regions:
             key = (
                 region["left"],
@@ -310,10 +309,10 @@ class OCRThread(threading.Thread):
                 region["width"],
                 region["height"],
             )
-            crop_left = max(0, region["left"] - pad)
-            crop_top = max(0, region["top"] - pad)
-            crop_right = min(image.width, region["left"] + region["width"] + pad)
-            crop_bottom = min(image.height, region["top"] + region["height"] + pad)
+            crop_left = region["left"]
+            crop_top = region["top"]
+            crop_right = region["left"] + region["width"]
+            crop_bottom = region["top"] + region["height"]
             region_box = (
                 crop_left,
                 crop_top,
@@ -325,8 +324,8 @@ class OCRThread(threading.Thread):
             words = await recognize_image(region_image, None)
             transformed_words = []
             for word in words:
-                screen_x = int(rect["left"] + crop_left + int(word["x"]))
-                screen_y = int(rect["top"] + crop_top + int(word["y"]))
+                screen_x = int(rect["left"] + region["left"] + int(word["x"]))
+                screen_y = int(rect["top"] + region["top"] + int(word["y"]))
                 transformed_words.append(
                     {
                         "text": word["text"],
