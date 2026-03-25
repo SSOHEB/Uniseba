@@ -302,6 +302,7 @@ class OCRThread(threading.Thread):
     async def _build_partial_index(self, image, rect, changed_regions):
         """OCR only changed regions and reuse cached OCR results for stable areas."""
         scale_back = 1.0 / max(OCR_DOWNSCALE, 0.01)
+        pad = 10
         for region in changed_regions:
             key = (
                 region["left"],
@@ -309,19 +310,23 @@ class OCRThread(threading.Thread):
                 region["width"],
                 region["height"],
             )
+            crop_left = max(0, region["left"] - pad)
+            crop_top = max(0, region["top"] - pad)
+            crop_right = min(image.width, region["left"] + region["width"] + pad)
+            crop_bottom = min(image.height, region["top"] + region["height"] + pad)
             region_box = (
-                region["left"],
-                region["top"],
-                region["left"] + region["width"],
-                region["top"] + region["height"],
+                crop_left,
+                crop_top,
+                crop_right,
+                crop_bottom,
             )
             region_image = image.crop(region_box)
             region_image = self._prepare_region_image(region_image)
             words = await recognize_image(region_image, None)
             transformed_words = []
             for word in words:
-                screen_x = int(rect["left"] + region["left"] + int(word["x"]))
-                screen_y = int(rect["top"] + region["top"] + int(word["y"]))
+                screen_x = int(rect["left"] + crop_left + int(word["x"]))
+                screen_y = int(rect["top"] + crop_top + int(word["y"]))
                 transformed_words.append(
                     {
                         "text": word["text"],
@@ -354,7 +359,7 @@ class OCRThread(threading.Thread):
             return new_index
 
         if abs(len(new_index) - len(old_index)) > OCR_STABILITY_COUNT_THRESHOLD:
-            return None
+            return new_index
 
         old_lookup = {}
         for item in old_index:
