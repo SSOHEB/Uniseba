@@ -2,12 +2,7 @@
 
 from sentence_transformers import SentenceTransformer, util
 
-import config
-
-MIN_QUERY_LENGTH = getattr(config, "MIN_QUERY_LENGTH", 2)
-MAX_RESULTS = getattr(config, "MAX_RESULTS", 50)
-SEMANTIC_MODEL_NAME = getattr(config, "SEMANTIC_MODEL_NAME", "all-MiniLM-L6-v2")
-SEMANTIC_LOCAL_FILES_ONLY = getattr(config, "SEMANTIC_LOCAL_FILES_ONLY", True)
+from config import MAX_RESULTS, MIN_QUERY_LENGTH, SEMANTIC_LOCAL_FILES_ONLY, SEMANTIC_MODEL_NAME
 
 _MODEL = None
 _INDEX_CACHE = {}

@@ -2,13 +2,7 @@
 
 from rapidfuzz import fuzz, process
 
-import config
-
-MIN_QUERY_LENGTH = getattr(config, "MIN_QUERY_LENGTH", 2)
-FUZZY_THRESHOLD = max(90, getattr(config, "FUZZY_THRESHOLD", 75))
-MAX_RESULTS = getattr(config, "MAX_RESULTS", 50)
-MIN_WORD_LENGTH = 2
-MIN_CONFIDENCE = 0.2
+from config import FUZZY_THRESHOLD, MAX_RESULTS, MIN_CONFIDENCE, MIN_QUERY_LENGTH, MIN_WORD_LENGTH
 
 
 def is_viable_search_word(query, entry):

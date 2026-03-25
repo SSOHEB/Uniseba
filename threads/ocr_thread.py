@@ -6,26 +6,31 @@ import threading
 import time
 from queue import Queue
 
-import config
 from mss import mss
 from PIL import Image
 import win32con
 import win32gui
 
 from capture.change import get_changed_regions
+from config import (
+    BLOCKED_CONSOLE_KEYWORDS,
+    BLOCKED_WINDOW_PREFIXES,
+    BLOCKED_WINDOW_TITLES,
+    CHANGE_GRID,
+    CHANGE_THRESHOLD,
+    CHANGE_THUMB_SIZE,
+    DESKTOP_WINDOW_KEYWORD,
+    FORCED_OCR_INTERVAL_MS,
+    MIN_TARGET_HEIGHT,
+    MIN_TARGET_TITLE_LENGTH,
+    MIN_TARGET_WIDTH,
+    OCR_DOWNSCALE,
+    OCR_STABILITY_COUNT_THRESHOLD,
+    OCR_UPDATE_DEBOUNCE_MS,
+    SCAN_INTERVAL_MS,
+)
 from ocr.engine import recognize_image
 from ocr.index import build_ocr_index
-
-SCAN_INTERVAL_MS = getattr(config, "SCAN_INTERVAL_MS", 150)
-MIN_TARGET_WIDTH = 300
-MIN_TARGET_HEIGHT = 200
-CHANGE_GRID = getattr(config, "CHANGE_GRID", (4, 4))
-CHANGE_THRESHOLD = getattr(config, "CHANGE_THRESHOLD", 3.0)
-CHANGE_THUMB_SIZE = getattr(config, "CHANGE_THUMB_SIZE", (32, 32))
-OCR_DOWNSCALE = getattr(config, "OCR_DOWNSCALE", 0.75)
-OCR_UPDATE_DEBOUNCE_MS = getattr(config, "OCR_UPDATE_DEBOUNCE_MS", 120)
-OCR_STABILITY_COUNT_THRESHOLD = getattr(config, "OCR_STABILITY_COUNT_THRESHOLD", 20)
-FORCED_OCR_INTERVAL_MS = getattr(config, "FORCED_OCR_INTERVAL_MS", 500)
 
 
 class OCRThread(threading.Thread):
@@ -51,7 +56,7 @@ class OCRThread(threading.Thread):
         self.current_image = None
         self.target_hwnd = None
         self.has_found_valid_target = False
-        self.blocked_exact_titles = {"windows powershell", "uniseba search"}
+        self.blocked_exact_titles = BLOCKED_WINDOW_TITLES
         self.region_index_cache = {}
         self.last_stable_index = []
         self.last_update_at = 0.0
@@ -158,10 +163,10 @@ class OCRThread(threading.Thread):
             return False
         raw_title = win32gui.GetWindowText(hwnd).strip()
         title = raw_title.lower()
-        if "program manager" in title:
+        if DESKTOP_WINDOW_KEYWORD in title:
             print(f"[OCR TARGET] skipped desktop hwnd={hwnd} title={title!r}")
             return False
-        if title in self.blocked_exact_titles or title.startswith("uniseba"):
+        if title in self.blocked_exact_titles or title.startswith(BLOCKED_WINDOW_PREFIXES):
             print(f"[OCR TARGET] skipped blocked bootstrap title hwnd={hwnd} title={title!r}")
             return False
         rect = self._get_full_window_rect(hwnd)
@@ -181,18 +186,18 @@ class OCRThread(threading.Thread):
             print(f"[OCR TARGET] skipped owned hwnd={hwnd}")
             return False
         raw_title = win32gui.GetWindowText(hwnd).strip()
-        if len(raw_title) < 2:
+        if len(raw_title) < MIN_TARGET_TITLE_LENGTH:
             print(f"[OCR TARGET] skipped empty title hwnd={hwnd}")
             return False
         title = raw_title.lower()
-        if "program manager" in title:
+        if DESKTOP_WINDOW_KEYWORD in title:
             print(f"[OCR TARGET] skipped desktop hwnd={hwnd} title={title!r}")
             return False
         class_name = win32gui.GetClassName(hwnd).lower()
-        if title in self.blocked_exact_titles or title.startswith("uniseba"):
+        if title in self.blocked_exact_titles or title.startswith(BLOCKED_WINDOW_PREFIXES):
             print(f"[OCR TARGET] skipped blocked title hwnd={hwnd} title={title!r}")
             return False
-        if class_name == "consolewindowclass" and ("powershell" in title or "python" in title):
+        if class_name == "consolewindowclass" and any(keyword in title for keyword in BLOCKED_CONSOLE_KEYWORDS):
             print(
                 f"[OCR TARGET] skipped blocked console hwnd={hwnd} "
                 f"class={class_name!r} title={title!r}"

@@ -1,14 +1,8 @@
 """Hybrid OCR search combining fuzzy and semantic signals."""
 
-import config
-
+from config import FUZZY_WEIGHT, MAX_RESULTS, MIN_QUERY_LENGTH, SEMANTIC_WEIGHT
 from search.fuzzy import fuzzy_search, is_viable_search_word
 from search.semantic import semantic_search
-
-FUZZY_WEIGHT = getattr(config, "FUZZY_WEIGHT", 0.4)
-SEMANTIC_WEIGHT = getattr(config, "SEMANTIC_WEIGHT", 0.6)
-MAX_RESULTS = getattr(config, "MAX_RESULTS", 50)
-MIN_QUERY_LENGTH = getattr(config, "MIN_QUERY_LENGTH", 2)
 
 
 def _boxes_overlap(a, b):

@@ -8,21 +8,21 @@ import threading
 # Set DPI awareness before UI modules create any windows.
 ctypes.windll.user32.SetProcessDPIAware()
 
-import config
 import keyboard
 import win32gui
 
+from config import (
+    FUZZY_WEIGHT,
+    GLOBAL_SHORTCUT,
+    MAX_RESULTS,
+    POLL_MS,
+    SEMANTIC_WEIGHT,
+)
 from search.fuzzy import fuzzy_search
 from threads.ocr_thread import OCRThread
 from threads.search_thread import SearchThread
 from ui.searchbar import SearchbarApp
 from ui.tray import TrayController
-
-DEBOUNCE_MS = getattr(config, "DEBOUNCE_MS", 250)
-MAX_RESULTS = getattr(config, "MAX_RESULTS", 50)
-FUZZY_WEIGHT = getattr(config, "FUZZY_WEIGHT", 0.4)
-SEMANTIC_WEIGHT = getattr(config, "SEMANTIC_WEIGHT", 0.6)
-POLL_MS = getattr(config, "POLL_MS", 100)
 
 
 class IntegratedSearchbarApp(SearchbarApp):
@@ -68,7 +68,7 @@ class IntegratedSearchbarApp(SearchbarApp):
     def register_global_shortcut(self):
         """Expose Ctrl+Shift+U from the app entry point."""
         self.global_hotkey = keyboard.add_hotkey(
-            "ctrl+shift+u",
+            GLOBAL_SHORTCUT,
             self._handle_global_shortcut,
         )
 
