@@ -32,6 +32,8 @@ from config import (
 from ocr.engine import recognize_image
 from ocr.index import build_ocr_index
 
+logger = logging.getLogger("uniseba.ocr.thread")
+
 
 class OCRThread(threading.Thread):
     """Capture the current target window, OCR it, and push updated indexes."""
@@ -52,7 +54,7 @@ class OCRThread(threading.Thread):
         self.preferred_hwnd = preferred_hwnd or (lambda: None)
         self.locked_hwnd = locked_hwnd or (lambda: None)
         self.lock_active = lock_active or (lambda: False)
-        self.logger = logging.getLogger("uniseba")
+        self.logger = logger
         self.current_image = None
         self.target_hwnd = None
         self.has_found_valid_target = False
@@ -89,8 +91,7 @@ class OCRThread(threading.Thread):
                     or now - self.last_forced_ocr_at >= (FORCED_OCR_INTERVAL_MS / 1000.0)
                 )
                 if not changed_regions and not force_refresh:
-                    print(f"[CHANGE] regions_changed=0/{total_regions}")
-                    print("[CHANGE] no change -> skipping OCR")
+                    self.logger.debug("No significant change detected regions_changed=0/%s", total_regions)
                     self.current_image = image
                     self.stop_event.wait(SCAN_INTERVAL_MS / 1000.0)
                     continue
@@ -104,26 +105,34 @@ class OCRThread(threading.Thread):
                             "height": image.height,
                         }
                     ]
-                    print(f"[CHANGE] regions_changed=1/{total_regions} forced_refresh=1")
+                    self.logger.debug("Forced OCR refresh triggered regions_changed=1/%s", total_regions)
                 else:
-                    print(f"[CHANGE] regions_changed={len(changed_regions)}/{total_regions}")
+                    self.logger.debug(
+                        "Detected changed regions regions_changed=%s/%s",
+                        len(changed_regions),
+                        total_regions,
+                    )
                 self.current_image = image
                 if now - self.last_update_at < (OCR_UPDATE_DEBOUNCE_MS / 1000.0):
-                    print("[OCR] debounced -> skipping update")
+                    self.logger.debug("Skipped OCR update because debounce window is still active")
                     self.stop_event.wait(SCAN_INTERVAL_MS / 1000.0)
                     continue
 
                 index = asyncio.run(self._build_partial_index(image, rect, changed_regions))
                 index = self._stabilize_index(index)
                 if index is None:
-                    print("[OCR] unstable frame -> keeping last stable index")
+                    self.logger.info("Discarded unstable OCR frame and kept the last stable index")
                     self.stop_event.wait(SCAN_INTERVAL_MS / 1000.0)
                     continue
 
                 self.last_stable_index = index
                 self.last_update_at = now
                 self.last_forced_ocr_at = now
-                print(f"[OCR] partial_regions={len(changed_regions)} total_words={len(index)}")
+                self.logger.info(
+                    "Published OCR index partial_regions=%s total_words=%s",
+                    len(changed_regions),
+                    len(index),
+                )
                 self.index_queue.put(index)
             except Exception:
                 self.logger.exception("OCR thread failed while updating the index.")
@@ -136,81 +145,85 @@ class OCRThread(threading.Thread):
         if not self.has_found_valid_target:
             if hwnd and self._is_bootstrap_target(hwnd):
                 self.target_hwnd = hwnd
-                print(f"[OCR TARGET] selected hwnd={hwnd} title={win32gui.GetWindowText(hwnd)!r}")
+                self.logger.info("Selected bootstrap OCR target hwnd=%s title=%r", hwnd, win32gui.GetWindowText(hwnd))
                 return
             preferred = self._normalize_hwnd(self.preferred_hwnd())
             if preferred and self._is_bootstrap_target(preferred):
                 self.target_hwnd = preferred
-                print(f"[OCR TARGET] selected hwnd={preferred} title={win32gui.GetWindowText(preferred)!r}")
+                self.logger.info(
+                    "Selected preferred bootstrap OCR target hwnd=%s title=%r",
+                    preferred,
+                    win32gui.GetWindowText(preferred),
+                )
             return
 
         if hwnd and self._is_valid_target(hwnd):
             self.target_hwnd = hwnd
-            print(f"[OCR TARGET] selected hwnd={hwnd} title={win32gui.GetWindowText(hwnd)!r}")
+            self.logger.info("Selected OCR target hwnd=%s title=%r", hwnd, win32gui.GetWindowText(hwnd))
             return
         preferred = self._normalize_hwnd(self.preferred_hwnd())
         if preferred and self._is_valid_target(preferred):
             self.target_hwnd = preferred
-            print(f"[OCR TARGET] selected hwnd={preferred} title={win32gui.GetWindowText(preferred)!r}")
+            self.logger.info("Selected preferred OCR target hwnd=%s title=%r", preferred, win32gui.GetWindowText(preferred))
 
     def _is_bootstrap_target(self, hwnd):
         """Allow almost any visible non-minimized window until OCR starts once."""
         if not hwnd or not win32gui.IsWindow(hwnd) or win32gui.IsIconic(hwnd):
-            print(f"[OCR TARGET] skipped invalid/minimized hwnd={hwnd}")
+            self.logger.debug("Rejected bootstrap target hwnd=%s because it is invalid or minimized", hwnd)
             return False
         if hwnd in self.excluded_hwnds():
-            print(f"[OCR TARGET] skipped owned bootstrap hwnd={hwnd}")
+            self.logger.debug("Rejected bootstrap target hwnd=%s because it belongs to Uniseba", hwnd)
             return False
         raw_title = win32gui.GetWindowText(hwnd).strip()
         title = raw_title.lower()
         if DESKTOP_WINDOW_KEYWORD in title:
-            print(f"[OCR TARGET] skipped desktop hwnd={hwnd} title={title!r}")
+            self.logger.debug("Rejected bootstrap target hwnd=%s title=%r because it is the desktop", hwnd, title)
             return False
         if title in self.blocked_exact_titles or title.startswith(BLOCKED_WINDOW_PREFIXES):
-            print(f"[OCR TARGET] skipped blocked bootstrap title hwnd={hwnd} title={title!r}")
+            self.logger.debug("Rejected bootstrap target hwnd=%s title=%r because it is blocked", hwnd, title)
             return False
         rect = self._get_full_window_rect(hwnd)
         if rect is None:
-            print(f"[OCR TARGET] skipped invalid bootstrap size hwnd={hwnd}")
+            self.logger.debug("Rejected bootstrap target hwnd=%s because it has an invalid size", hwnd)
             return False
-        width = rect["width"]
-        height = rect["height"]
         return True
 
     def _is_valid_target(self, hwnd):
         """Reject invalid, minimized, or known Uniseba/debug windows."""
         if not hwnd or not win32gui.IsWindow(hwnd) or win32gui.IsIconic(hwnd):
-            print(f"[OCR TARGET] skipped invalid/minimized hwnd={hwnd}")
+            self.logger.debug("Rejected OCR target hwnd=%s because it is invalid or minimized", hwnd)
             return False
         if hwnd in self.excluded_hwnds():
-            print(f"[OCR TARGET] skipped owned hwnd={hwnd}")
+            self.logger.debug("Rejected OCR target hwnd=%s because it belongs to Uniseba", hwnd)
             return False
         raw_title = win32gui.GetWindowText(hwnd).strip()
         if len(raw_title) < MIN_TARGET_TITLE_LENGTH:
-            print(f"[OCR TARGET] skipped empty title hwnd={hwnd}")
+            self.logger.debug("Rejected OCR target hwnd=%s because the title is too short", hwnd)
             return False
         title = raw_title.lower()
         if DESKTOP_WINDOW_KEYWORD in title:
-            print(f"[OCR TARGET] skipped desktop hwnd={hwnd} title={title!r}")
+            self.logger.debug("Rejected OCR target hwnd=%s title=%r because it is the desktop", hwnd, title)
             return False
         class_name = win32gui.GetClassName(hwnd).lower()
         if title in self.blocked_exact_titles or title.startswith(BLOCKED_WINDOW_PREFIXES):
-            print(f"[OCR TARGET] skipped blocked title hwnd={hwnd} title={title!r}")
+            self.logger.debug("Rejected OCR target hwnd=%s title=%r because it is blocked", hwnd, title)
             return False
         if class_name == "consolewindowclass" and any(keyword in title for keyword in BLOCKED_CONSOLE_KEYWORDS):
-            print(
-                f"[OCR TARGET] skipped blocked console hwnd={hwnd} "
-                f"class={class_name!r} title={title!r}"
+            self.logger.debug(
+                "Rejected OCR target hwnd=%s class=%r title=%r because it is a blocked console window",
+                hwnd,
+                class_name,
+                title,
             )
             return False
         rect = self._get_full_window_rect(hwnd)
         if rect is None:
-            print(f"[OCR TARGET] skipped invalid size hwnd={hwnd}")
+            self.logger.debug("Rejected OCR target hwnd=%s because it has an invalid size", hwnd)
             return False
         width = rect["width"]
         height = rect["height"]
         if width < MIN_TARGET_WIDTH or height < MIN_TARGET_HEIGHT:
-            print(f"[OCR TARGET] skipped small window hwnd={hwnd} size={width}x{height}")
+            self.logger.debug("Rejected OCR target hwnd=%s because the window is too small size=%sx%s", hwnd, width, height)
             return False
         return True
 
@@ -229,11 +242,21 @@ class OCRThread(threading.Thread):
 
         width = rect["width"]
         height = rect["height"]
-        print(f"[OCR REGION] width={width} height={height}")
+        self.logger.debug("Capturing OCR target region width=%s height=%s", width, height)
         if not self.has_found_valid_target:
-            print(f"[OCR TARGET] bootstrap capturing hwnd={hwnd} title={win32gui.GetWindowText(hwnd)!r} rect={rect}")
+            self.logger.debug(
+                "Bootstrap capturing OCR target hwnd=%s title=%r rect=%s",
+                hwnd,
+                win32gui.GetWindowText(hwnd),
+                rect,
+            )
         else:
-            print(f"[OCR TARGET] capturing hwnd={hwnd} title={win32gui.GetWindowText(hwnd)!r} rect={rect}")
+            self.logger.debug(
+                "Capturing OCR target hwnd=%s title=%r rect=%s",
+                hwnd,
+                win32gui.GetWindowText(hwnd),
+                rect,
+            )
         with mss() as sct:
             shot = sct.grab(rect)
             image = Image.frombytes("RGB", shot.size, shot.rgb)

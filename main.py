@@ -24,6 +24,8 @@ from threads.search_thread import SearchThread
 from ui.searchbar import SearchbarApp
 from ui.tray import TrayController
 
+logger = logging.getLogger("uniseba.main")
+
 
 class IntegratedSearchbarApp(SearchbarApp):
     """Connect the existing overlay UI to background OCR and semantic workers."""
@@ -67,10 +69,12 @@ class IntegratedSearchbarApp(SearchbarApp):
         if hwnd and hwnd not in self.own_window_handles():
             self.target_hwnd = hwnd
             self.locked_hwnd = hwnd
-            print(f"[MAIN] shortcut captured hwnd={hwnd} title={win32gui.GetWindowText(hwnd)!r}")
-            print(f"[TARGET LOCKED] hwnd={hwnd} title={win32gui.GetWindowText(hwnd)!r}")
+            title = win32gui.GetWindowText(hwnd)
+            logger.info("Shortcut captured foreground window hwnd=%s title=%r", hwnd, title)
+            logger.debug("Locked target window hwnd=%s title=%r", hwnd, title)
         else:
-            print(f"[MAIN] shortcut ignored foreground hwnd={hwnd} title={win32gui.GetWindowText(hwnd) if hwnd else ''!r}")
+            title = win32gui.GetWindowText(hwnd) if hwnd else ""
+            logger.debug("Shortcut ignored foreground window hwnd=%s title=%r", hwnd, title)
         self.after(0, self.toggle_visibility)
 
     def on_hidden(self):
@@ -87,7 +91,11 @@ class IntegratedSearchbarApp(SearchbarApp):
         """Keep OCR pinned to the chosen content window while the user is searching."""
         if self.visible and self.target_hwnd and win32gui.IsWindow(self.target_hwnd):
             self.locked_hwnd = self.target_hwnd
-            print(f"[TARGET LOCKED] hwnd={self.locked_hwnd} title={win32gui.GetWindowText(self.locked_hwnd)!r}")
+            logger.debug(
+                "Reinforced locked target window hwnd=%s title=%r",
+                self.locked_hwnd,
+                win32gui.GetWindowText(self.locked_hwnd),
+            )
         super()._on_query_changed(event)
 
     def _set_matches(self, matches):
@@ -130,7 +138,7 @@ class IntegratedSearchbarApp(SearchbarApp):
         fuzzy_results = fuzzy_search(query, index, limit=MAX_RESULTS)
         self.latest_fuzzy_results = fuzzy_results
         sample = fuzzy_results[0] if fuzzy_results else None
-        print(f"[search] query={query!r} matches={len(fuzzy_results)} sample={sample}")
+        logger.debug("Fuzzy search completed query=%r matches=%s sample=%r", query, len(fuzzy_results), sample)
         self.result_label.configure(text=f"{len(fuzzy_results)} matches")
         self._set_matches(fuzzy_results)
 
@@ -153,8 +161,7 @@ class IntegratedSearchbarApp(SearchbarApp):
         updated = self._drain_latest_index()
         if updated is not None:
             self.ocr_ready = True
-            print(f"[MAIN] received index size: {len(updated)}")
-            print(f"[main] received index with {len(updated)} words from OCR queue")
+            logger.info("Received OCR index update size=%s", len(updated))
         if updated is not None and self.visible and len(self.entry.get().strip()) >= 2:
             self._apply_search()
         self.index_poll_job = self.after(POLL_MS, self._poll_index_queue)
@@ -242,8 +249,9 @@ def configure_logging():
     """Send OCR and integration errors to uniseba.log."""
     logging.basicConfig(
         filename="uniseba.log",
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+        level=logging.DEBUG,
+        format="%(asctime)s %(levelname)s [%(threadName)s] %(name)s: %(message)s",
+        force=True,
     )
 
 
@@ -274,10 +282,10 @@ def main():
     semantic_thread = SearchThread(semantic_request_queue, semantic_result_queue, stop_event)
     ocr_thread.start()
     semantic_thread.start()
-    print("[main] OCR thread started")
-    print("[main] semantic thread started")
+    logger.info("OCR thread started")
+    logger.info("Semantic thread started")
     tray.start()
-    print("[main] tray started")
+    logger.info("Tray started")
     app.mainloop()
 
 
