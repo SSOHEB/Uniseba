@@ -41,7 +41,15 @@ def fuzzy_search(query, index, limit=MAX_RESULTS, threshold=FUZZY_THRESHOLD):
         entry = dict(filtered_entries[match_index])
         normalized_word = entry["word"]
         substring_match = normalized_query in normalized_word
-        if not substring_match and float(score) < threshold:
+        candidate_in_query = normalized_word in normalized_query
+        containment_match = substring_match
+        if candidate_in_query:
+            start_gap = normalized_query.find(normalized_word)
+            end_gap = len(normalized_query) - (start_gap + len(normalized_word))
+            if start_gap > 2 or end_gap > 2:
+                continue
+            containment_match = True
+        if not containment_match and float(score) < threshold:
             continue
         entry["fuzzy_score"] = float(score) / 100.0
         results.append(entry)
