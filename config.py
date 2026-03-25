@@ -65,10 +65,10 @@ MIN_TARGET_HEIGHT = 200
 MIN_TARGET_TITLE_LENGTH = 2
 
 # Region grid used for change detection.
-CHANGE_GRID = (4, 4)
+CHANGE_GRID = (6, 6)
 
 # Mean grayscale thumbnail diff required to mark a region as changed.
-CHANGE_THRESHOLD = 3.0
+CHANGE_THRESHOLD = 1.5
 
 # Thumbnail size used during region diffing.
 CHANGE_THUMB_SIZE = (32, 32)
@@ -77,13 +77,13 @@ CHANGE_THUMB_SIZE = (32, 32)
 OCR_DOWNSCALE = 0.75
 
 # Minimum time between published OCR updates, in milliseconds.
-OCR_UPDATE_DEBOUNCE_MS = 120
+OCR_UPDATE_DEBOUNCE_MS = 60
 
 # Maximum allowed OCR word-count jump before a frame is treated as unstable.
 OCR_STABILITY_COUNT_THRESHOLD = 20
 
 # Force a refresh even when no region changed after this many milliseconds.
-FORCED_OCR_INTERVAL_MS = 500
+FORCED_OCR_INTERVAL_MS = 200
 
 
 # OCR target filtering settings
