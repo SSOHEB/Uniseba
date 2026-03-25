@@ -301,8 +301,8 @@ class OCRThread(threading.Thread):
             words = await recognize_image(region_image, None)
             transformed_words = []
             for word in words:
-                screen_x = int(rect["left"] + region["left"] + (int(word["x"]) * scale_back))
-                screen_y = int(rect["top"] + region["top"] + (int(word["y"]) * scale_back))
+                screen_x = int(rect["left"] + region["left"] + int(word["x"]))
+                screen_y = int(rect["top"] + region["top"] + int(word["y"]))
                 transformed_words.append(
                     {
                         "text": word["text"],
