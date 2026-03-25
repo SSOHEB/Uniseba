@@ -29,7 +29,7 @@ class IntegratedSearchbarApp(SearchbarApp):
     """Connect the existing overlay UI to background OCR and semantic workers."""
 
     def __init__(self, index_queue, semantic_request_queue, semantic_result_queue, stop_event):
-        self.external_index_queue = index_queue
+        self.index_queue = index_queue
         self.semantic_request_queue = semantic_request_queue
         self.semantic_result_queue = semantic_result_queue
         self.stop_event = stop_event
@@ -42,24 +42,13 @@ class IntegratedSearchbarApp(SearchbarApp):
         self.latest_fuzzy_results = []
         self.last_draw_signature = None
         self.ocr_ready = False
+        self.current_index = []
+        self.target_hwnd = None
         self.locked_hwnd = None
         super().__init__()
-        self.index_queue = self.external_index_queue
-        self.current_index = []
-        if self.refresh_job is not None:
-            self.after_cancel(self.refresh_job)
-            self.refresh_job = None
         self.bind("<Escape>", lambda _event: self.hide_overlay())
         self.index_poll_job = self.after(POLL_MS, self._poll_index_queue)
         self.search_poll_job = self.after(POLL_MS, self._poll_semantic_results)
-
-    def _register_hotkey(self):
-        """Delay hotkey registration until main wires the full app together."""
-        self.hotkey_handle = None
-
-    def _refresh_loop(self):
-        """Disable the Phase 4 local OCR refresh in favor of the OCR thread."""
-        return
 
     def set_tray(self, tray):
         """Attach the tray controller after construction."""
@@ -84,12 +73,15 @@ class IntegratedSearchbarApp(SearchbarApp):
             print(f"[MAIN] shortcut ignored foreground hwnd={hwnd} title={win32gui.GetWindowText(hwnd) if hwnd else ''!r}")
         self.after(0, self.toggle_visibility)
 
+    def on_hidden(self):
+        """Clear overlay state when the base UI hides."""
+        self.last_draw_signature = None
+        self.locked_hwnd = None
+
     def hide_overlay(self):
         """Hide the overlay and clear any current highlights."""
         if self.visible:
             self.toggle_visibility()
-        self.last_draw_signature = None
-        self.locked_hwnd = None
 
     def _on_query_changed(self, event=None):
         """Keep OCR pinned to the chosen content window while the user is searching."""
@@ -105,6 +97,15 @@ class IntegratedSearchbarApp(SearchbarApp):
             return
         self.last_draw_signature = signature
         self.overlay.draw_matches(matches)
+
+    def _drain_latest_index(self):
+        """Pick the most recent OCR index update from the queue."""
+        latest = None
+        while not self.index_queue.empty():
+            latest = self.index_queue.get_nowait()
+        if latest is not None:
+            self.current_index = latest
+        return latest
 
     def _apply_search(self):
         """Use fuzzy results immediately and semantic reranking asynchronously."""
