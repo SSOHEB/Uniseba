@@ -118,7 +118,7 @@ class OCRThread(threading.Thread):
                     self.stop_event.wait(SCAN_INTERVAL_MS / 1000.0)
                     continue
 
-                index = asyncio.run(self._build_partial_index(image, rect, changed_regions))
+                index = asyncio.run(self._build_full_index(image, rect))
                 index = self._stabilize_index(index)
                 if index is None:
                     self.logger.info("Discarded unstable OCR frame and kept the last stable index")
@@ -129,7 +129,7 @@ class OCRThread(threading.Thread):
                 self.last_update_at = now
                 self.last_forced_ocr_at = now
                 self.logger.info(
-                    "Published OCR index partial_regions=%s total_words=%s",
+                    "Published OCR index full_window=1 changed_regions=%s total_words=%s",
                     len(changed_regions),
                     len(index),
                 )
@@ -292,56 +292,21 @@ class OCRThread(threading.Thread):
         """Return the full top-level window bounds for OCR capture."""
         if not hwnd or not win32gui.IsWindow(hwnd):
             return None
-        left, top, right, bottom = win32gui.GetWindowRect(hwnd)
-        width = right - left
-        height = bottom - top
+        try:
+            client_left, client_top = win32gui.ClientToScreen(hwnd, (0, 0))
+            left2, top2, right2, bottom2 = win32gui.GetClientRect(hwnd)
+            width = right2 - left2
+            height = bottom2 - top2
+        except Exception:
+            return None
         if width <= 0 or height <= 0:
             return None
-        return {"left": left, "top": top, "width": width, "height": height}
+        return {"left": client_left, "top": client_top, "width": width, "height": height}
 
-    async def _build_partial_index(self, image, rect, changed_regions):
-        """OCR only changed regions and reuse cached OCR results for stable areas."""
-        scale_back = 1.0 / max(OCR_DOWNSCALE, 0.01)
-        for region in changed_regions:
-            key = (
-                region["left"],
-                region["top"],
-                region["width"],
-                region["height"],
-            )
-            crop_left = region["left"]
-            crop_top = region["top"]
-            crop_right = region["left"] + region["width"]
-            crop_bottom = region["top"] + region["height"]
-            region_box = (
-                crop_left,
-                crop_top,
-                crop_right,
-                crop_bottom,
-            )
-            region_image = image.crop(region_box)
-            region_image = self._prepare_region_image(region_image)
-            words = await recognize_image(region_image, None)
-            transformed_words = []
-            for word in words:
-                screen_x = int(rect["left"] + region["left"] + int(word["x"]))
-                screen_y = int(rect["top"] + region["top"] + int(word["y"]))
-                transformed_words.append(
-                    {
-                        "text": word["text"],
-                        "x": screen_x,
-                        "y": screen_y,
-                        "w": int(word["w"] * scale_back),
-                        "h": int(word["h"] * scale_back),
-                    }
-                )
-            self.region_index_cache[key] = build_ocr_index(transformed_words)
-
-        deduped = {}
-        for region_words in self.region_index_cache.values():
-            for item in region_words:
-                deduped[(item["word"], item["x"], item["y"], item["w"], item["h"])] = item
-        return list(deduped.values())
+    async def _build_full_index(self, image, rect):
+        """Run OCR on the full captured window so geometry can be validated end to end."""
+        words = await recognize_image(image, rect)
+        return build_ocr_index(words)
 
     def _prepare_region_image(self, image):
         """Slightly downscale OCR regions so partial passes stay lightweight."""
@@ -352,29 +317,8 @@ class OCRThread(threading.Thread):
         return image.resize((width, height), Image.Resampling.LANCZOS)
 
     def _stabilize_index(self, new_index):
-        """Reject wildly different frames and smooth matching word positions."""
-        old_index = self.last_stable_index
-        if not old_index:
-            return new_index
-
-        if abs(len(new_index) - len(old_index)) > OCR_STABILITY_COUNT_THRESHOLD:
-            return new_index
-
-        old_lookup = {}
-        for item in old_index:
-            old_lookup.setdefault(item["word"], []).append(item)
-
-        stabilized = []
-        for item in new_index:
-            previous = self._find_previous_match(item, old_lookup.get(item["word"], []))
-            if previous is not None:
-                item = {
-                    **item,
-                    "x": int((previous["x"] + item["x"]) / 2),
-                    "y": int((previous["y"] + item["y"]) / 2),
-                }
-            stabilized.append(item)
-        return stabilized
+        """Temporary safe mode: trust the newest OCR frame without smoothing."""
+        return new_index
 
     def _find_previous_match(self, item, candidates):
         """Find the closest prior word with the same normalized text."""
