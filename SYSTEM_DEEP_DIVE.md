@@ -2,587 +2,233 @@
 
 ## Purpose
 
-This document explains the current Uniseba system end to end by analyzing the actual source files in the repository.
+This document explains the current Uniseba system end to end using the code as it exists now.
 
-It is meant to answer:
+It focuses on:
 
-- what each file does
-- which path is actually used at runtime
-- how data moves through the system
-- where coordinates are produced and consumed
-- how OCR, search, and UI depend on each other
+- current runtime ownership
+- actual OCR backend
+- actual coordinate ownership
+- what is active
+- what is intentionally bypassed
 
 ---
 
-## High-Level Architecture
+## Current High-Level Architecture
 
-The system is split into five main layers:
+The live architecture is:
 
 1. Capture
 2. OCR
-3. Search
-4. Threads / orchestration
-5. UI
-
-These are wired together by `main.py`.
+3. Index normalization
+4. Search
+5. Overlay rendering
 
 Runtime flow:
 
-1. User activates the app.
-2. OCR thread chooses a target window.
-3. OCR thread captures the full target window.
-4. Change detection decides which regions changed.
-5. OCR runs on changed regions.
-6. OCR words are converted into an index.
-7. The index is pushed into a queue.
-8. UI polls the queue and stores the newest index.
-9. User types a query.
-10. Search runs on the OCR index.
-11. Overlay draws rectangles at matching coordinates.
+1. User triggers the app.
+2. OCR thread chooses a valid target window.
+3. OCR thread captures the client area of that window.
+4. OCR thread runs full-window EasyOCR.
+5. OCR words are normalized into a searchable index.
+6. The index is pushed into a queue.
+7. The UI polls the queue and stores the newest index.
+8. Fuzzy search runs immediately on user query.
+9. Optional semantic reranking runs in a background thread.
+10. Overlay draws rectangles using final coordinates.
 
 ---
 
-## File-By-File Analysis
+## Current Active Runtime Path
 
-## `main.py`
+### `main.py`
 
-This is the real application entry point.
+Current responsibilities:
 
-Key responsibilities:
+- DPI awareness
+- queue creation
+- worker thread startup
+- tray startup
+- integrated UI wiring
+- fuzzy-first search flow
+- semantic rerank request flow
+- final overlay update
 
-- sets DPI awareness before UI creation
-- creates queues and stop event
-- creates the integrated search bar app
-- starts the OCR thread
-- starts the semantic search thread
-- starts the tray icon
+### `threads/ocr_thread.py`
 
-Important class:
+This is still the most important operational file.
 
-- `IntegratedSearchbarApp(SearchbarApp)`
+Current active behavior:
 
-This subclass is important because it changes Phase 4 behavior into Phase 5 behavior.
-
-What it changes:
-
-- disables the old local OCR refresh loop from `ui/searchbar.py`
-- polls OCR results from a background queue
-- applies fuzzy search immediately
-- optionally asks the semantic thread for reranking
-- redraws overlay only when match signatures change
-
-Important note:
-
-`main.py` still stores `locked_hwnd`, but current OCR target selection is primarily foreground-driven in `threads/ocr_thread.py`. So there is some mismatch between stored UI intent and current OCR thread behavior.
-
----
-
-## `capture/screen.py`
-
-This is the original Phase 2 helper for active-window capture.
-
-It:
-
-- gets the foreground HWND
-- calls `GetWindowRect`
-- builds a rect dict
-- uses `mss` to capture it
-- returns both image and absolute rect
-
-This file is simple and still useful conceptually, but in the integrated app the main runtime capture path is inside `threads/ocr_thread.py`, not here.
-
----
-
-## `capture/change.py`
-
-This is the current change-detection module.
-
-Key function:
-
-- `get_changed_regions(previous_image, current_image, grid, threshold, thumb_size)`
-
-How it works:
-
-- splits the captured image into a grid, currently default `4x4`
-- crops each region
-- converts each region to grayscale thumbnail
-- compares previous vs current mean absolute pixel difference
-- returns only the regions whose diff exceeds threshold
-
-Special behavior:
-
-- if there is no previous image, all grid regions are considered changed
-
-Why it matters:
-
-- it is the gatekeeper for OCR cost
-- it controls whether OCR is skipped, partial, or forced
-
----
-
-## `ocr/engine.py`
-
-This is the OCR engine wrapper.
-
-It is not a scheduler. It is a thin conversion layer around Windows OCR.
-
-Main responsibilities:
-
-- lazy-import WinRT namespaces
-- create English OCR engine
-- convert PIL image to `SoftwareBitmap`
-- preprocess image before OCR
-- run `recognize_async`
-- return words with boxes
-
-Important implementation details:
-
-- it upscales input image `2x`
-- it autocontrasts grayscale text
-- it drops tiny OCR boxes below `min_height`
-
-Important note:
-
-`recognize_image(image, window_rect=None)` can return:
-
-- absolute coordinates if `window_rect` is provided
-- local image coordinates if `window_rect` is `None`
-
-In the current integrated partial-region path, `threads/ocr_thread.py` calls:
-
-- `recognize_image(region_image, None)`
-
-then maps region-local OCR output into final screen coordinates itself.
-
-This makes `ocr_thread.py` the true owner of final coordinate mapping.
-
----
-
-## `ocr/index.py`
-
-This converts raw OCR words into the search index format.
-
-Each index item looks like:
-
-```python
-{
-    "word": lowercased_text,
-    "original": original_text,
-    "x": absolute_screen_x,
-    "y": absolute_screen_y,
-    "w": width,
-    "h": height,
-    "confidence": proxy_score,
-}
-```
-
-Filtering rules:
-
-- empty text is rejected
-- height below `8` is rejected
-- one-character non-digit noise is rejected
-
-Confidence:
-
-- there is no real OCR confidence from WinRT here
-- the code uses a proxy based on bounding-box height
-
-Why that matters:
-
-- search logic is partly making decisions based on a confidence estimate, not true OCR confidence
-
----
-
-## `threads/ocr_thread.py`
-
-This is the core of the current system.
-
-It is doing many jobs:
-
-- target selection
-- capture
-- change detection
-- partial OCR orchestration
-- coordinate mapping
-- OCR stabilization
+- foreground-oriented target selection
+- client-area capture
+- change detection gating
+- full-window OCR execution
 - queue publishing
 
-### Target Selection
+Important current note:
 
-`_update_target_window()` currently:
+The thread still contains traces of the older optimization design, but the trusted runtime path is now:
 
-- normalizes foreground HWND to top-level root window
-- prefers the current foreground app
-- rejects bad targets like:
-  - `Program Manager`
-  - `Uniseba Search`
-  - console/debug windows
-  - small windows
-  - minimized windows
+- `_build_full_index()`
+- `_stabilize_index()` returns `new_index`
 
-The thread used to rely more heavily on lock/fallback behavior. Right now it is more foreground-driven.
+That is the current safe-mode baseline.
 
-### Full Window Capture
+### `ocr/engine.py`
 
-`_capture_target_window()`:
+Current OCR backend:
 
-- normalizes the stored target HWND
-- validates it
-- obtains full bounds from `_get_full_window_rect()`
-- logs `[OCR REGION] width=... height=...`
-- captures that exact rect using `mss`
+- EasyOCR
+- synchronous OCR call
+- module-level reader
+- CUDA-aware initialization
 
-This means capture itself is supposed to be full-window, not bottom-strip.
+It is no longer a WinRT wrapper.
 
-### Partial OCR
+### `ocr/index.py`
 
-`_build_partial_index()`:
+Current role:
 
-- takes changed regions only
-- crops each changed region from the captured image
-- downscales region by `OCR_DOWNSCALE`
-- runs OCR on region
-- maps OCR coordinates back to screen-space
-- stores OCR results per region in `region_index_cache`
-- merges all region caches into one deduplicated full index
+- normalize OCR output
+- remove obvious OCR noise
+- build the shared search index schema
 
-This is the most subtle part of the system.
+### `threads/search_thread.py`
 
-Coordinate formula:
+Current role:
 
-```python
-screen_x = rect["left"] + region["left"] + (word["x"] * scale_back)
-screen_y = rect["top"] + region["top"] + (word["y"] * scale_back)
-```
+- background semantic rerank worker
+- leaves overall ranking ownership to `main.py`
 
-This is why overlay drawing should use final `x/y` directly.
+### `ui/searchbar.py`
 
-### Stabilization
+Current role:
 
-The thread also keeps:
+- pure UI base class
+- owns widgets, overlay ownership, visibility, and shutdown
 
-- `last_stable_index`
-- `last_update_at`
-- `last_forced_ocr_at`
+It no longer owns OCR orchestration.
 
-It rejects unstable OCR frames if the word count changes too much and smooths repeated word positions by averaging old and new coordinates.
+### `ui/overlay.py`
 
-### Why This File Is So Important
+Current role:
 
-If there is a bug in this file, symptoms can appear as:
-
-- “bad OCR”
-- “bad search”
-- “wrong rectangles”
-- “wrong window”
-- “slow scrolling”
-
-even when the rest of the system is fine.
+- draw final rectangles at final coordinates
+- no geometry transformation
 
 ---
 
-## `search/fuzzy.py`
+## Capture Geometry Ownership
 
-This is the primary immediate search engine.
+This was one of the biggest bug sources, so it is worth stating clearly.
 
-Key behavior:
+### Current capture rectangle
 
-- lowercases query
-- filters obvious OCR junk
-- runs RapidFuzz `WRatio`
-- returns OCR entries with a `fuzzy_score`
+The OCR thread now captures the client area only.
 
-It rejects:
+It uses:
 
-- very short OCR words
-- very low confidence entries
-- pure symbol strings
+- `GetClientRect()`
+- `ClientToScreen()`
 
-It prints:
+This excludes:
 
-- accepted candidate count
-- rejected candidate count
-- final match count
+- title bar
+- borders
+- other window chrome
 
-This file is important because it often defines the perceived quality of search much more than hybrid/semantic layers do.
+That change fixed the earlier consistent vertical offset.
 
 ---
 
-## `search/semantic.py`
+## OCR Backend Behavior
 
-This is the optional embedding-based search backend.
+Current `recognize_image(image, window_rect=None, min_height=8)`:
 
-Key behavior:
+- converts PIL image to NumPy
+- runs EasyOCR `readtext(...)`
+- receives `(bbox, text, confidence)` tuples
+- filters out OCR confidence below `0.3`
+- converts polygon boxes into `x`, `y`, `w`, `h`
+- applies `window_rect` offset if provided
 
-- lazy-loads `all-MiniLM-L6-v2`
-- uses local files only by default
-- caches OCR index embeddings
-- computes cosine similarity between query and OCR words
-
-Important limitation:
-
-- if the model is not available locally, semantic search returns empty results and hybrid search effectively becomes fuzzy-only
+This means the OCR backend now uses real OCR confidence, not just geometry-derived proxy behavior.
 
 ---
 
-## `search/hybrid.py`
+## Coordinate Ownership
 
-This merges fuzzy and semantic scores.
+Current safest coordinate story:
 
-Key behavior:
+1. OCR thread captures client-area image in screen pixel coordinates.
+2. OCR engine returns screen-space coordinates when `window_rect` is passed.
+3. OCR index stores those absolute coordinates.
+4. Overlay draws them directly.
 
-- collects fuzzy matches first
-- merges semantic matches by `(x, y)` key
-- computes weighted final score
-- suppresses overlapping boxes
-
-Important point:
-
-The hybrid layer assumes OCR coordinates are already correct. It does not transform geometry.
+This direct path is why safe mode aligned correctly.
 
 ---
 
-## `threads/search_thread.py`
+## Why Safe Mode Matters
 
-This is a simple background worker.
+The recent debugging session proved something important:
 
-It:
+- the base OCR pipeline was correct
+- the optimization path was corrupting geometry
 
-- reads semantic requests from a queue
-- runs `semantic_search()`
-- writes results back to another queue
+Safe mode currently means:
 
-It does not own search ranking overall. It only assists reranking when AI toggle is enabled.
+- full-window OCR only
+- no partial-region remapping
+- no smoothing-based stabilization
 
----
-
-## `ui/searchbar.py`
-
-This file contains the original Phase 4 standalone UI logic.
-
-It still includes:
-
-- its own hotkey
-- its own local OCR refresh path
-- sample OCR index data
-- direct search calls
-
-Important reality:
-
-In integrated mode, `main.py` overrides `_refresh_loop()` and `_register_hotkey()`, so a lot of this file becomes a base UI shell rather than the active OCR driver.
-
-It still provides:
-
-- the actual search window
-- entry field
-- result label
-- AI toggle
-- target window remembering behavior
-
-This file therefore acts partly as UI base class and partly as legacy standalone app.
+That is the current trusted architecture.
 
 ---
 
-## `ui/overlay.py`
+## Search Layer
 
-This is the final draw surface.
+### Fuzzy Search
 
-Responsibilities:
+Current fuzzy behavior:
 
-- create fullscreen transparent top-level window
-- keep a canvas covering the screen
-- clear old highlight rectangles
-- draw new highlight rectangles
+- `fuzz.partial_ratio`
+- `FUZZY_THRESHOLD = 85`
+- candidate confidence gate through the normalized index
+- additional substring-style acceptance behavior
 
-Critical contract:
+### Semantic Search
 
-- it draws exactly where `x/y/w/h` tell it
-- it does not re-map coordinates
+Current semantic behavior:
 
-Current debug behavior:
-
-- it prints `[DRAW CHECK] using x=..., y=...`
-
-This is useful because it shows the last stage before visible rendering.
+- optional
+- background worker
+- local model fallback behavior still applies
 
 ---
 
-## `ui/tray.py`
+## Current Risks
 
-Simple tray controller.
+### 1. Partial OCR Is Not Reintroduced Yet
 
-Responsibilities:
+The app is currently accurate because it is using the simpler path.
 
-- create tray icon
-- provide `Show/Hide Overlay`
-- provide `Quit`
+### 2. Dependency Stack Needs Maintenance
 
-This is peripheral to OCR/search logic but important for the desktop app experience.
+The code now depends on the EasyOCR / torch / NumPy compatibility story remaining healthy.
 
----
+### 3. Search Merge Logic Is Still Split
 
-## `config.py`
+There is still overlap between:
 
-Currently empty.
-
-That means many values come from per-file defaults, for example:
-
-- OCR loop timing
-- search thresholds
-- grid size
-- debounce values
-- semantic model config
-
-This matters because configuration is currently decentralized.
-
----
-
-## End-To-End Data Flow
-
-### Step 1. User Action
-
-The user activates the app through the global shortcut registered in `main.py`.
-
-### Step 2. Window Choice
-
-The integrated UI stores the current target intent in `target_hwnd` and `locked_hwnd`.
-
-### Step 3. OCR Thread Selects Target
-
-`threads/ocr_thread.py` decides which HWND to capture, usually based on normalized foreground window plus validity rules.
-
-### Step 4. Capture
-
-The OCR thread captures the full target window with `mss`.
-
-### Step 5. Change Detection
-
-`capture/change.py` decides whether OCR should run and which regions changed.
-
-### Step 6. OCR
-
-`ocr/engine.py` converts images into WinRT OCR output.
-
-### Step 7. Indexing
-
-`ocr/index.py` turns OCR words into a searchable coordinate-aware index.
-
-### Step 8. Queue Transfer
-
-The OCR thread pushes the current index into the UI queue.
-
-### Step 9. UI Poll
-
-`main.py` polls the queue and stores the latest OCR index.
-
-### Step 10. Search
-
-The user types in the search bar.
-
-`main.py` runs fuzzy search immediately and optionally semantic rerank in background.
-
-### Step 11. Overlay Draw
-
-The resulting matches are sent to `ui/overlay.py`, which draws highlight rectangles on the screen.
-
----
-
-## Coordinate System Ownership
-
-This is one of the most important conceptual points in the project.
-
-### Capture Space
-
-`mss` captures a window image in screen pixel space.
-
-### OCR Space
-
-OCR runs on:
-
-- full window images in some test paths
-- cropped and downscaled regions in the integrated OCR thread
-
-So OCR output is not automatically safe to draw.
-
-### Mapping Space
-
-`threads/ocr_thread.py` is the place where OCR region-local coordinates are converted into absolute screen coordinates.
-
-### Draw Space
-
-`ui/overlay.py` assumes coordinates are already final.
-
-That means:
-
-- if rectangles are misplaced, the first place to inspect is usually `threads/ocr_thread.py`
-- if rectangles are not visible, inspect `ui/overlay.py`
-
----
-
-## What Is Active vs Legacy
-
-### Active In Integrated Runtime
-
-- `main.py`
-- `threads/ocr_thread.py`
-- `threads/search_thread.py`
-- `capture/change.py`
-- `ocr/engine.py`
-- `ocr/index.py`
-- `search/fuzzy.py`
+- `main.py` merge logic
 - `search/hybrid.py`
-- `ui/overlay.py`
-- `ui/tray.py`
-
-### Legacy Or Partially Overridden
-
-- parts of `ui/searchbar.py`
-- standalone OCR refresh logic in `ui/searchbar.py`
-- sample OCR index in `ui/searchbar.py`
 
 ---
 
-## Main Technical Risks Still Present
+## Best Mental Model
 
-### 1. OCR Engine Availability
+The current best mental model of the codebase is:
 
-If WinRT modules are unavailable, the whole pipeline breaks at the OCR stage.
-
-### 2. Target Selection Ambiguity
-
-The project has changed target-selection behavior many times. The current version is more foreground-based, but UI state still keeps lock-related fields.
-
-### 3. Partial OCR Complexity
-
-Partial OCR improves responsiveness but creates more opportunities for:
-
-- coordinate mismatch
-- stale region caches
-- inconsistent OCR across regions
-
-### 4. Configuration Drift
-
-Because `config.py` is empty, behavior is spread across module-local defaults, making tuning harder.
-
----
-
-## Best Mental Model For This Codebase
-
-If you want the shortest correct model of the system, use this:
-
-Uniseba is a queue-based Windows desktop OCR overlay.
-
-- `threads/ocr_thread.py` is the live sensor
-- `ocr/engine.py` is the OCR backend
-- `ocr/index.py` is the normalizer
-- `search/*.py` are ranking layers
-- `main.py` is the coordinator
-- `ui/searchbar.py` is the control surface
-- `ui/overlay.py` is the renderer
-
-And the most important invariant is:
-
-OCR thread must produce correct absolute coordinates for the same window the user believes is being searched.
-
-If that invariant breaks, everything else appears wrong.
-
+Uniseba is a queue-based Windows OCR overlay whose currently trusted runtime uses client-area capture plus full-window EasyOCR to produce final absolute coordinates for search and drawing.

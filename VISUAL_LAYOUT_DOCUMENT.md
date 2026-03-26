@@ -2,226 +2,122 @@
 
 ## Purpose
 
-This document explains how the major runtime components are arranged conceptually and how data moves between them.
+This document shows where the current runtime components sit relative to each other.
 
-It is not a pixel-perfect UI mockup. It is a structural map meant to answer:
+It reflects the current codebase:
 
-- what sits upstream vs downstream
-- which components produce data
-- which components consume data
-- where threads sit relative to the UI
-- where the overlay sits relative to search
+- EasyOCR backend
+- full-window OCR safe mode
+- fuzzy-first search
+- overlay rendering from final coordinates
 
 ---
 
 ## Core Runtime Flow
 
-The simplest system picture is:
-
 ```text
-[Foreground Window]
-        |
-        v
-[Capture]
-        |
-        v
-[Change Detection]
-        |
-        v
-[OCR]
-        |
-        v
+[Foreground Content Window]
+           |
+           v
+[Client-Area Capture]
+           |
+           v
+[Full-Window EasyOCR]
+           |
+           v
 [OCR Index Normalization]
-        |
-        v
+           |
+           v
 [index_queue]
-        |
-        v
+           |
+           v
 [UI / Searchbar]
-   |            \
-   |             \
-   v              v
+   |                 \
+   |                  \
+   v                   v
 [Fuzzy Search]   [semantic_request_queue]
-   |                    |
-   |                    v
-   |             [Semantic Thread]
-   |                    |
-   |                    v
-   |             [Semantic Search]
-   |                    |
-   |                    v
-   |             [semantic_result_queue]
-   |                    |
-   \____________________/
-            |
-            v
-      [Merged Results]
-            |
-            v
-        [Overlay]
+   |                      |
+   |                      v
+   |               [Semantic Thread]
+   |                      |
+   |                      v
+   |               [Semantic Search]
+   |                      |
+   |                      v
+   |               [semantic_result_queue]
+   |                      |
+   \______________________/
+              |
+              v
+        [Merged Results]
+              |
+              v
+          [Overlay]
 ```
 
 ---
 
-## Runtime Ownership Map
-
-The same flow grouped by ownership:
+## Ownership View
 
 ```text
-USER / WINDOWS
+WINDOWS / USER
 --------------
 [Target App Window]
 
-WORKER THREAD SIDE
-------------------
+WORKER SIDE
+-----------
 [threads/ocr_thread.py]
-    -> capture target window
-    -> detect changed regions
-    -> OCR changed regions
-    -> build normalized index
-    -> publish index_queue
+  -> select target
+  -> capture client area
+  -> run full-window OCR
+  -> build OCR index
+  -> publish index_queue
 
 [threads/search_thread.py]
-    -> receive semantic requests
-    -> run semantic search
-    -> publish semantic_result_queue
+  -> receive semantic requests
+  -> run semantic search
+  -> publish semantic results
 
 UI / MAIN THREAD SIDE
 ---------------------
 [main.py + IntegratedSearchbarApp]
-    -> poll OCR index
-    -> run fuzzy search
-    -> request semantic rerank
-    -> merge results
-    -> draw overlay
+  -> poll OCR index
+  -> run fuzzy search
+  -> request semantic rerank
+  -> merge results
+  -> draw overlay
 
 DISPLAY SIDE
 ------------
 [ui/overlay.py]
-    -> draw rectangles in final screen coordinates
+  -> draw rectangles in final screen coordinates
 ```
 
 ---
 
-## Left-To-Right Pipeline View
-
-If you want one straight pipeline for a refinery diagram, use this:
-
-```text
-[Target Window] -> [Capture] -> [Change Detection] -> [OCR] -> [Index]
-                                                         |
-                                                         v
-                                                     [index_queue]
-                                                         |
-                                                         v
-                                                  [UI / Searchbar]
-                                                     /         \
-                                                    v           v
-                                           [Fuzzy Search]   [Semantic Request]
-                                                    \           |
-                                                     \          v
-                                                      -> [Semantic Thread]
-                                                             |
-                                                             v
-                                                      [Semantic Result]
-                                                             |
-                                                             v
-                                                       [Result Merge]
-                                                             |
-                                                             v
-                                                         [Overlay]
-```
-
----
-
-## Vertical Stack View
-
-If you prefer a top-to-bottom diagram:
-
-```text
-TOP: USER'S REAL APP WINDOW
-    [Chrome / VS Code / Notepad / etc.]
-
-OCR LAYER
-    [Target selection]
-    [Window capture]
-    [Change detection]
-    [OCR]
-    [Index normalization]
-
-QUEUE LAYER
-    [index_queue]
-    [semantic_request_queue]
-    [semantic_result_queue]
-
-SEARCH/UI LAYER
-    [Searchbar window]
-    [Immediate fuzzy search]
-    [Optional semantic rerank]
-    [Result merge]
-
-VISUAL OUTPUT LAYER
-    [Fullscreen overlay rectangles]
-```
-
----
-
-## Spatial Relationship Of UI Components
-
-There are three visible UI-adjacent pieces:
-
-### 1. Target app window
-
-This is the real application being searched.
-
-- It exists outside Uniseba.
-- OCR captures this window.
-- Overlay rectangles are drawn over this window's content.
-
-### 2. Searchbar window
-
-This is the Uniseba control surface.
-
-- created by `ui/searchbar.py`
-- small floating window
-- topmost
-- contains:
-  - text entry
-  - result count label
-  - AI toggle
-
-It is conceptually above the target app in control terms, but not in the data pipeline.
-
-### 3. Overlay window
-
-This is the visual highlight layer.
-
-- fullscreen
-- transparent background
-- topmost
-- draws rectangles over the target app window
-
-It is downstream from search, not upstream from OCR.
-
-Simple view:
+## Spatial UI Relationship
 
 ```text
 [Searchbar]
     |
-    | controls / queries
+    | query / control
     v
 [Search Logic] -----------------> [Overlay]
                                       |
-                                      | draws on top of
+                                      | drawn on top of
                                       v
                                [Target App Window]
 ```
 
+Meaning:
+
+- the target app window is the thing being searched
+- the searchbar is the control surface
+- the overlay is the downstream visual layer
+
 ---
 
-## Where Threads Sit
-
-The OCR and semantic workers are not visually on screen, but architecturally they sit beside the UI, not inside it.
+## Thread Placement
 
 ```text
                   [Main UI Thread]
@@ -241,17 +137,9 @@ The OCR and semantic workers are not visually on screen, but architecturally the
                       [Overlay]
 ```
 
-Meaning:
-
-- OCR work happens off the UI thread
-- semantic work happens off the UI thread
-- queue polling and overlay drawing happen on the UI thread
-
 ---
 
-## Physical Flow By File
-
-This is the practical file-to-file layout:
+## File Flow
 
 ```text
 [main.py]
@@ -276,16 +164,14 @@ This is the practical file-to-file layout:
 
 ---
 
-## Practical Layout Summary
-
-For a quick refinery or node graph, the best compressed version is:
+## Current Practical Summary
 
 ```text
 [Target Window]
       |
       v
 [OCR Thread]
-  Capture -> Change Detection -> OCR -> Index
+  Target -> Client Capture -> Full OCR -> Index
       |
       v
 [index_queue]
@@ -302,7 +188,3 @@ For a quick refinery or node graph, the best compressed version is:
       v
 [Overlay]
 ```
-
-If you need just one sentence:
-
-Uniseba is laid out as a background OCR pipeline feeding a foreground search UI, which then drives a fullscreen overlay drawn over the user's real app window.
