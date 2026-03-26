@@ -10,7 +10,14 @@ def _is_meaningful_word(text, height):
     cleaned = text.strip()
     if not cleaned or int(height) < 8:
         return False
+    if len(cleaned) > 40:
+        return False
+    if cleaned.count(" ") > 3:
+        return False
     if len(cleaned) == 1 and not cleaned.isdigit():
+        return False
+    lowered = cleaned.lower()
+    if "word='" in lowered or "[searchbar]" in lowered or "[filter]" in lowered or "[draw" in lowered:
         return False
     return True
 

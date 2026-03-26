@@ -24,8 +24,6 @@ logger.info("EasyOCR initialized on %s", "GPU" if gpu_available else "CPU")
 def recognize_image(image, window_rect=None, min_height=8):
     """Run OCR on a PIL image and return filtered words with absolute boxes."""
     numpy_image = np.array(image)
-    if hasattr(reader, "detector"):
-        reader.detector = reader.detector.to("cuda" if gpu_available else "cpu")
     results = reader.readtext(numpy_image, detail=1, paragraph=False)
     offset_x = 0 if window_rect is None else window_rect["left"]
     offset_y = 0 if window_rect is None else window_rect["top"]
