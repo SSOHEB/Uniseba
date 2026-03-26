@@ -54,4 +54,7 @@ def fuzzy_search(query, index, limit=MAX_RESULTS, threshold=FUZZY_THRESHOLD):
         entry["fuzzy_score"] = float(score) / 100.0
         results.append(entry)
     print(f"[FILTER] final_matches={len(results)}")
+    print(f"[FUZZY] query='{query}' matches={len(results)}")
+    for r in results[:5]:
+        print(f"  '{r['original']}' score={r['fuzzy_score']:.1f} at ({r['x']},{r['y']})")
     return results

@@ -50,6 +50,10 @@ def recognize_image(image, window_rect=None, min_height=8):
             }
         )
 
+    print(f"[OCR] words_found={len(words)} gpu={torch.cuda.is_available()}")
+    for w in words[:5]:
+        print(f"  word='{w['text']}' conf={w.get('confidence', 'N/A')} x={w['x']} y={w['y']} w={w['w']} h={w['h']}")
+
     return words
 
 

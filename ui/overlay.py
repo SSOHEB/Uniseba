@@ -82,7 +82,9 @@ class OverlayWindow:
             y1 = int(item["y"])
             x2 = x1 + int(item["w"])
             y2 = y1 + int(item["h"])
-            print(f"[DRAW CHECK] using x={x1}, y={y1} word={item.get('original', '')!r}")
+            w = int(item["w"])
+            h = int(item["h"])
+            print(f"[DRAW] '{item.get('original', '')}' at x={x1} y={y1} w={w} h={h}")
             self.canvas.create_rectangle(
                 x1,
                 y1,
