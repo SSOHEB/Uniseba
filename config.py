@@ -26,7 +26,7 @@ MAX_RESULTS = 50
 MIN_QUERY_LENGTH = 2
 
 # Minimum accepted fuzzy score. The previous code effectively clamped this to 90.
-FUZZY_THRESHOLD = 92
+FUZZY_THRESHOLD = 82
 
 # Weight of fuzzy matching when fuzzy and semantic scores are merged.
 FUZZY_WEIGHT = 0.4

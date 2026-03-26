@@ -31,7 +31,7 @@ def fuzzy_search(query, index, limit=MAX_RESULTS, threshold=FUZZY_THRESHOLD):
     matches = process.extract(
         normalized_query,
         choices,
-        scorer=fuzz.WRatio,
+        scorer=fuzz.partial_ratio,
         score_cutoff=threshold,
         limit=limit,
     )
