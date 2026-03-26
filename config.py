@@ -38,7 +38,7 @@ SEMANTIC_WEIGHT = 0.6
 MIN_WORD_LENGTH = 2
 
 # Minimum proxy confidence required for fuzzy search candidates.
-MIN_CONFIDENCE = 0.2
+MIN_CONFIDENCE = 0.15
 
 
 # Semantic search settings

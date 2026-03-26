@@ -1,6 +1,5 @@
 """Background OCR worker for continuously updating the visible text index."""
 
-import asyncio
 import logging
 import threading
 import time
@@ -118,7 +117,7 @@ class OCRThread(threading.Thread):
                     self.stop_event.wait(SCAN_INTERVAL_MS / 1000.0)
                     continue
 
-                index = asyncio.run(self._build_full_index(image, rect))
+                index = self._build_full_index(image, rect)
                 index = self._stabilize_index(index)
                 if index is None:
                     self.logger.info("Discarded unstable OCR frame and kept the last stable index")
@@ -303,9 +302,9 @@ class OCRThread(threading.Thread):
             return None
         return {"left": client_left, "top": client_top, "width": width, "height": height}
 
-    async def _build_full_index(self, image, rect):
+    def _build_full_index(self, image, rect):
         """Run OCR on the full captured window so geometry can be validated end to end."""
-        words = await recognize_image(image, rect)
+        words = recognize_image(image, rect)
         return build_ocr_index(words)
 
     def _prepare_region_image(self, image):
