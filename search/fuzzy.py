@@ -1,8 +1,12 @@
 """RapidFuzz-based search helpers."""
 
+import logging
+
 from rapidfuzz import fuzz, process
 
 from config import FUZZY_THRESHOLD, MAX_RESULTS, MIN_CONFIDENCE, MIN_QUERY_LENGTH, MIN_WORD_LENGTH
+
+logger = logging.getLogger("uniseba.search.fuzzy")
 
 
 def is_viable_search_word(query, entry):
@@ -25,7 +29,11 @@ def fuzzy_search(query, index, limit=MAX_RESULTS, threshold=FUZZY_THRESHOLD):
 
     filtered_entries = [entry for entry in index if is_viable_search_word(normalized_query, entry)]
     rejected_count = len(index) - len(filtered_entries)
-    print(f"[FILTER] accepted_candidates={len(filtered_entries)} rejected_candidates={rejected_count}")
+    logger.debug(
+        "[FILTER] accepted_candidates=%s rejected_candidates=%s",
+        len(filtered_entries),
+        rejected_count,
+    )
 
     choices = [entry["word"] for entry in filtered_entries]
     matches = process.extract(
@@ -53,8 +61,14 @@ def fuzzy_search(query, index, limit=MAX_RESULTS, threshold=FUZZY_THRESHOLD):
             continue
         entry["fuzzy_score"] = float(score) / 100.0
         results.append(entry)
-    print(f"[FILTER] final_matches={len(results)}")
-    print(f"[FUZZY] query='{query}' matches={len(results)}")
+    logger.debug("[FILTER] final_matches=%s", len(results))
+    logger.debug("[FUZZY] query=%r matches=%s", query, len(results))
     for r in results[:5]:
-        print(f"  '{r['original']}' score={r['fuzzy_score']:.1f} at ({r['x']},{r['y']})")
+        logger.debug(
+            "  %r score=%.1f at (%s,%s)",
+            r["original"],
+            r["fuzzy_score"],
+            r["x"],
+            r["y"],
+        )
     return results

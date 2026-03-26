@@ -45,7 +45,13 @@ def build_ocr_index(words):
             }
         )
     logger.debug("Normalized OCR index kept=%s filtered_out=%s", len(index), filtered_out)
-    print(f"[INDEX] kept={len(index)} filtered={filtered_out}")
+    logger.debug("[INDEX] kept=%s filtered=%s", len(index), filtered_out)
     for item in index[:5]:
-        print(f"  '{item['original']}' conf={item['confidence']} at ({item['x']},{item['y']})")
+        logger.debug(
+            "  %r conf=%s at (%s,%s)",
+            item["original"],
+            item["confidence"],
+            item["x"],
+            item["y"],
+        )
     return index

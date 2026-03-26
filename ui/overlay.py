@@ -1,5 +1,6 @@
 """Transparent fullscreen overlay used for drawing result highlights."""
 
+import logging
 import tkinter as tk
 
 import win32con
@@ -7,6 +8,8 @@ import win32gui
 
 KEY_COLOR = "#010101"
 HIGHLIGHT_COLOR = "#FFD700"
+
+logger = logging.getLogger("uniseba.ui.overlay")
 
 
 class OverlayWindow:
@@ -84,7 +87,14 @@ class OverlayWindow:
             y2 = y1 + int(item["h"])
             w = int(item["w"])
             h = int(item["h"])
-            print(f"[DRAW] '{item.get('original', '')}' at x={x1} y={y1} w={w} h={h}")
+            logger.debug(
+                "[DRAW] %r at x=%s y=%s w=%s h=%s",
+                item.get("original", ""),
+                x1,
+                y1,
+                w,
+                h,
+            )
             self.canvas.create_rectangle(
                 x1,
                 y1,

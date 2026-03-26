@@ -50,9 +50,17 @@ def recognize_image(image, window_rect=None, min_height=8):
             }
         )
 
-    print(f"[OCR] words_found={len(words)} gpu={torch.cuda.is_available()}")
+    logger.debug("[OCR] words_found=%s gpu=%s", len(words), torch.cuda.is_available())
     for w in words[:5]:
-        print(f"  word='{w['text']}' conf={w.get('confidence', 'N/A')} x={w['x']} y={w['y']} w={w['w']} h={w['h']}")
+        logger.debug(
+            "  word=%r conf=%s x=%s y=%s w=%s h=%s",
+            w["text"],
+            w.get("confidence", "N/A"),
+            w["x"],
+            w["y"],
+            w["w"],
+            w["h"],
+        )
 
     return words
 
@@ -61,13 +69,20 @@ def _run_test():
     """Capture the active window, run OCR, and print word boxes."""
     image, rect = capture_active_window()
     if image is None:
-        print("No active window found.")
+        logger.debug("No active window found.")
         return
 
     words = recognize_image(image, rect)
     index = build_ocr_index(words)
     for item in index:
-        print(f"{item['original']}: ({item['x']}, {item['y']}, {item['w']}, {item['h']})")
+        logger.debug(
+            "%s: (%s, %s, %s, %s)",
+            item["original"],
+            item["x"],
+            item["y"],
+            item["w"],
+            item["h"],
+        )
 
 
 if __name__ == "__main__":
