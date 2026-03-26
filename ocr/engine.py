@@ -1,17 +1,31 @@
 """EasyOCR-based OCR wrapper."""
 
 import easyocr
+import logging
 import numpy as np
+import torch
 
 from capture.screen import capture_active_window
 from ocr.index import build_ocr_index
 
-reader = easyocr.Reader(["en"], gpu=True, verbose=False)
+logger = logging.getLogger("uniseba.ocr.engine")
+
+gpu_available = torch.cuda.is_available()
+reader = easyocr.Reader(
+    ["en"],
+    gpu=gpu_available,
+    model_storage_directory=None,
+    download_enabled=True,
+    verbose=False,
+)
+logger.info("EasyOCR initialized on %s", "GPU" if gpu_available else "CPU")
 
 
 def recognize_image(image, window_rect=None, min_height=8):
     """Run OCR on a PIL image and return filtered words with absolute boxes."""
     numpy_image = np.array(image)
+    if hasattr(reader, "detector"):
+        reader.detector = reader.detector.to("cuda" if gpu_available else "cpu")
     results = reader.readtext(numpy_image, detail=1, paragraph=False)
     offset_x = 0 if window_rect is None else window_rect["left"]
     offset_y = 0 if window_rect is None else window_rect["top"]

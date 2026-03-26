@@ -53,7 +53,7 @@ SEMANTIC_LOCAL_FILES_ONLY = True
 # OCR thread timing and capture settings
 
 # Background OCR scan interval in milliseconds.
-SCAN_INTERVAL_MS = 150
+SCAN_INTERVAL_MS = 300
 
 # Smallest top-level window width allowed for normal OCR targeting.
 MIN_TARGET_WIDTH = 300
