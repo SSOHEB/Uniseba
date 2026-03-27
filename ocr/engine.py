@@ -4,6 +4,7 @@ import easyocr
 import logging
 import numpy as np
 import torch
+from PIL import Image as PILImage
 
 from capture.screen import capture_active_window
 from ocr.index import build_ocr_index
@@ -23,6 +24,13 @@ logger.info("EasyOCR initialized on %s", "GPU" if gpu_available else "CPU")
 
 def recognize_image(image, window_rect=None, min_height=8):
     """Run OCR on a PIL image and return filtered words with absolute boxes."""
+    scale = 1
+    if image.height < 1200:
+        scale = 2
+        new_w = image.width * scale
+        new_h = image.height * scale
+        image = image.resize((new_w, new_h), PILImage.LANCZOS)
+
     numpy_image = np.array(image)
     results = reader.readtext(numpy_image, detail=1, paragraph=False)
     offset_x = 0 if window_rect is None else window_rect["left"]
@@ -34,10 +42,10 @@ def recognize_image(image, window_rect=None, min_height=8):
             continue
         xs = [point[0] for point in bbox]
         ys = [point[1] for point in bbox]
-        x = int(min(xs))
-        y = int(min(ys))
-        w = int(max(xs) - min(xs))
-        h = int(max(ys) - min(ys))
+        x = int(min(xs) / scale)
+        y = int(min(ys) / scale)
+        w = int((max(xs) - min(xs)) / scale)
+        h = int((max(ys) - min(ys)) / scale)
         if h < min_height:
             continue
         words.append(
