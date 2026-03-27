@@ -1,9 +1,9 @@
 """EasyOCR-based OCR wrapper."""
 
-import easyocr
 import logging
 import numpy as np
 import torch
+import easyocr
 from PIL import Image as PILImage
 
 from capture.screen import capture_active_window
