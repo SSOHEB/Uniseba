@@ -30,6 +30,9 @@ logger = logging.getLogger("uniseba.main")
 class IntegratedSearchbarApp(SearchbarApp):
     """Connect the existing overlay UI to background OCR and semantic workers."""
 
+    PHRASE_VERTICAL_THRESHOLD = 100
+    PHRASE_HORIZONTAL_THRESHOLD = 500
+
     def __init__(self, index_queue, semantic_request_queue, semantic_result_queue, stop_event):
         self.index_queue = index_queue
         self.semantic_request_queue = semantic_request_queue
@@ -115,6 +118,111 @@ class IntegratedSearchbarApp(SearchbarApp):
             self.current_index = latest
         return latest
 
+    def _phrase_tokens(self, query):
+        """Return normalized tokens for phrase-mode matching."""
+        return [token for token in query.strip().lower().split() if token]
+
+    def _can_join_phrase_cluster(self, cluster, candidate):
+        """Keep phrase matches spatially tight so unrelated hits do not merge."""
+        min_x = min(item["x"] for item in cluster)
+        max_x = max(item["x"] + item["w"] for item in cluster)
+        min_y = min(item["y"] for item in cluster)
+        max_y = max(item["y"] + item["h"] for item in cluster)
+        candidate_left = candidate["x"]
+        candidate_right = candidate["x"] + candidate["w"]
+        candidate_top = candidate["y"]
+        candidate_bottom = candidate["y"] + candidate["h"]
+        vertical_gap = max(0, max(candidate_top - max_y, min_y - candidate_bottom))
+        horizontal_gap = max(0, max(candidate_left - max_x, min_x - candidate_right))
+        return (
+            vertical_gap <= self.PHRASE_VERTICAL_THRESHOLD
+            and horizontal_gap <= self.PHRASE_HORIZONTAL_THRESHOLD
+        )
+
+    def _build_phrase_results(self, query, index):
+        """Lift multi-word queries into nearby word clusters before whole-query fuzzy search."""
+        tokens = self._phrase_tokens(query)
+        if len(tokens) < 2:
+            return []
+
+        token_results = {}
+        for token in tokens:
+            matches = fuzzy_search(token, index, limit=MAX_RESULTS)
+            if not matches:
+                return []
+            token_results[token] = matches
+
+        seed_token = min(token_results, key=lambda token: len(token_results[token]))
+        cluster_signatures = set()
+        phrase_results = []
+
+        for seed in token_results[seed_token]:
+            cluster = [seed]
+            for token in tokens:
+                if token == seed_token:
+                    continue
+                nearby = [
+                    candidate
+                    for candidate in token_results[token]
+                    if self._can_join_phrase_cluster(cluster, candidate)
+                ]
+                if not nearby:
+                    cluster = []
+                    break
+                nearby.sort(
+                    key=lambda item: (
+                        -item.get("fuzzy_score", 0.0),
+                        abs(item["y"] - seed["y"]) + abs(item["x"] - seed["x"]),
+                    )
+                )
+                cluster.append(nearby[0])
+
+            if not cluster:
+                continue
+
+            deduped_cluster = []
+            seen_items = set()
+            for item in sorted(cluster, key=lambda entry: (entry["y"], entry["x"])):
+                item_key = (item["x"], item["y"], item["w"], item["h"], item.get("original", ""))
+                if item_key in seen_items:
+                    continue
+                seen_items.add(item_key)
+                deduped_cluster.append(item)
+
+            cluster_signature = tuple(
+                (item["x"], item["y"], item["w"], item["h"], item.get("original", ""))
+                for item in deduped_cluster
+            )
+            if cluster_signature in cluster_signatures:
+                continue
+            cluster_signatures.add(cluster_signature)
+
+            for item in deduped_cluster:
+                phrase_results.append(
+                    {
+                        **item,
+                        "phrase_match": True,
+                        "phrase_score": 1.0,
+                    }
+                )
+
+        return phrase_results[:MAX_RESULTS]
+
+    def _combine_phrase_and_single_results(self, phrase_results, fuzzy_results):
+        """Show phrase-cluster hits first, then fall back to normal full-query fuzzy results."""
+        if not phrase_results:
+            return fuzzy_results
+
+        combined = []
+        seen = set()
+        for item in phrase_results + fuzzy_results:
+            key = (item["x"], item["y"], item["w"], item["h"], item.get("original", ""))
+            if key in seen:
+                continue
+            seen.add(key)
+            combined.append(item)
+        return combined[:MAX_RESULTS]
+
     def _apply_search(self):
         """Use fuzzy results immediately and semantic reranking asynchronously."""
         self.debounce_job = None
@@ -135,7 +243,9 @@ class IntegratedSearchbarApp(SearchbarApp):
         index = self._drain_latest_index()
         if index is None:
             index = self.current_index
+        phrase_results = self._build_phrase_results(query, index)
         fuzzy_results = fuzzy_search(query, index, limit=MAX_RESULTS)
+        fuzzy_results = self._combine_phrase_and_single_results(phrase_results, fuzzy_results)
         self.latest_fuzzy_results = fuzzy_results
         sample = fuzzy_results[0] if fuzzy_results else None
         logger.debug("Fuzzy search completed query=%r matches=%s sample=%r", query, len(fuzzy_results), sample)
@@ -190,6 +300,7 @@ class IntegratedSearchbarApp(SearchbarApp):
                 **item,
                 "fuzzy_score": item.get("fuzzy_score", 0.0),
                 "semantic_score": 0.0,
+                "phrase_score": item.get("phrase_score", 0.0),
             }
 
         for item in semantic_results:
@@ -200,6 +311,7 @@ class IntegratedSearchbarApp(SearchbarApp):
                     **item,
                     "fuzzy_score": 0.0,
                     "semantic_score": 0.0,
+                    "phrase_score": item.get("phrase_score", 0.0),
                 },
             )
             current["semantic_score"] = max(current["semantic_score"], item.get("semantic_score", 0.0))
@@ -207,6 +319,8 @@ class IntegratedSearchbarApp(SearchbarApp):
         results = []
         for item in merged.values():
             item["final_score"] = (
+                item.get("phrase_score", 0.0)
+                +
                 item.get("fuzzy_score", 0.0) * FUZZY_WEIGHT
                 + item.get("semantic_score", 0.0) * SEMANTIC_WEIGHT
             )

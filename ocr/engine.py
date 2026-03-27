@@ -30,7 +30,7 @@ def recognize_image(image, window_rect=None, min_height=8):
     words = []
 
     for bbox, text, confidence in results:
-        if confidence < 0.3:
+        if float(confidence) < 0.15:
             continue
         xs = [point[0] for point in bbox]
         ys = [point[1] for point in bbox]
