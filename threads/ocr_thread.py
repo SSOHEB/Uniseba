@@ -67,8 +67,11 @@ class OCRThread(threading.Thread):
         """Keep OCR results fresh until the application exits."""
         while not self.stop_event.is_set():
             try:
+                cycle_started_at = time.perf_counter()
                 self._update_target_window()
+                capture_started_at = time.perf_counter()
                 image, rect = self._capture_target_window()
+                capture_ms = (time.perf_counter() - capture_started_at) * 1000.0
                 if image is None:
                     self.stop_event.wait(SCAN_INTERVAL_MS / 1000.0)
                     continue
@@ -76,6 +79,7 @@ class OCRThread(threading.Thread):
                 if not self.has_found_valid_target:
                     self.has_found_valid_target = True
 
+                change_started_at = time.perf_counter()
                 changed_regions = get_changed_regions(
                     self.current_image,
                     image,
@@ -83,6 +87,7 @@ class OCRThread(threading.Thread):
                     threshold=CHANGE_THRESHOLD,
                     thumb_size=CHANGE_THUMB_SIZE,
                 )
+                change_detection_ms = (time.perf_counter() - change_started_at) * 1000.0
                 total_regions = CHANGE_GRID[0] * CHANGE_GRID[1]
                 now = time.monotonic()
                 force_refresh = (
@@ -113,11 +118,17 @@ class OCRThread(threading.Thread):
                     )
                 self.current_image = image
                 if now - self.last_update_at < (OCR_UPDATE_DEBOUNCE_MS / 1000.0):
-                    self.logger.debug("Skipped OCR update because debounce window is still active")
+                    total_cycle_ms = (time.perf_counter() - cycle_started_at) * 1000.0
+                    self.logger.debug(
+                        "Skipped OCR update because debounce window is still active capture_ms=%.1f change_ms=%.1f total_cycle_ms=%.1f",
+                        capture_ms,
+                        change_detection_ms,
+                        total_cycle_ms,
+                    )
                     self.stop_event.wait(SCAN_INTERVAL_MS / 1000.0)
                     continue
 
-                index = self._build_full_index(image, rect)
+                index, timing = self._build_full_index(image, rect)
                 index = self._stabilize_index(index)
                 if index is None:
                     self.logger.info("Discarded unstable OCR frame and kept the last stable index")
@@ -127,10 +138,16 @@ class OCRThread(threading.Thread):
                 self.last_stable_index = index
                 self.last_update_at = now
                 self.last_forced_ocr_at = now
+                total_cycle_ms = (time.perf_counter() - cycle_started_at) * 1000.0
                 self.logger.info(
-                    "Published OCR index full_window=1 changed_regions=%s total_words=%s",
+                    "Published OCR index full_window=1 changed_regions=%s total_words=%s capture_ms=%.1f change_ms=%.1f ocr_ms=%.1f index_ms=%.1f total_cycle_ms=%.1f",
                     len(changed_regions),
                     len(index),
+                    capture_ms,
+                    change_detection_ms,
+                    timing["ocr_ms"],
+                    timing["index_ms"],
+                    total_cycle_ms,
                 )
                 self.index_queue.put(index)
             except Exception:
@@ -304,8 +321,13 @@ class OCRThread(threading.Thread):
 
     def _build_full_index(self, image, rect):
         """Run OCR on the full captured window so geometry can be validated end to end."""
+        ocr_started_at = time.perf_counter()
         words = recognize_image(image, rect)
-        return build_ocr_index(words)
+        ocr_ms = (time.perf_counter() - ocr_started_at) * 1000.0
+        index_started_at = time.perf_counter()
+        index = build_ocr_index(words)
+        index_ms = (time.perf_counter() - index_started_at) * 1000.0
+        return index, {"ocr_ms": ocr_ms, "index_ms": index_ms}
 
     def _prepare_region_image(self, image):
         """Slightly downscale OCR regions so partial passes stay lightweight."""

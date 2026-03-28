@@ -4,10 +4,12 @@ import logging
 import tkinter as tk
 
 import win32con
+import win32clipboard
 import win32gui
 
 KEY_COLOR = "#010101"
 HIGHLIGHT_COLOR = "#FFD700"
+FLASH_COLOR = "#FFFFFF"
 
 logger = logging.getLogger("uniseba.ui.overlay")
 
@@ -16,6 +18,8 @@ class OverlayWindow:
     """Manage a click-through fullscreen overlay for highlight rectangles."""
 
     def __init__(self, master):
+        self.match_regions = []
+        self.flash_generation = 0
         self.window = tk.Toplevel(master)
         self.window.withdraw()
         self.window.overrideredirect(True)
@@ -34,19 +38,8 @@ class OverlayWindow:
             highlightthickness=0,
         )
         self.canvas.pack(fill="both", expand=True)
+        self.canvas.bind("<Button-1>", self._handle_click)
         self.window.update_idletasks()
-        # self._apply_click_through()
-
-    def _apply_click_through(self):
-        """Apply Windows extended styles so clicks pass through the overlay."""
-        hwnd = self.window.winfo_id()
-        styles = win32gui.GetWindowLong(hwnd, win32con.GWL_EXSTYLE)
-        styles |= (
-            win32con.WS_EX_LAYERED
-            | win32con.WS_EX_TRANSPARENT
-            | win32con.WS_EX_TOOLWINDOW
-        )
-        win32gui.SetWindowLong(hwnd, win32con.GWL_EXSTYLE, styles)
 
     def exists(self):
         """Return True while the overlay window and canvas still exist."""
@@ -71,7 +64,52 @@ class OverlayWindow:
         """Remove all drawn highlight rectangles."""
         if not self.exists():
             return
+        self.match_regions = []
+        self.flash_generation += 1
         self.canvas.delete("highlight")
+
+    def _copy_text_to_clipboard(self, text):
+        """Copy matched text into the Windows clipboard."""
+        win32clipboard.OpenClipboard()
+        try:
+            win32clipboard.EmptyClipboard()
+            win32clipboard.SetClipboardText(text, win32clipboard.CF_UNICODETEXT)
+        finally:
+            win32clipboard.CloseClipboard()
+
+    def _find_clicked_region(self, x, y):
+        """Return the match region that contains the clicked canvas point."""
+        for region in self.match_regions:
+            if region["x1"] <= x <= region["x2"] and region["y1"] <= y <= region["y2"]:
+                return region
+        return None
+
+    def _flash_region(self, region):
+        """Flash a clicked region briefly so copy feedback is visible."""
+        item_id = region["canvas_id"]
+        generation = self.flash_generation
+        self.canvas.itemconfig(item_id, outline=FLASH_COLOR)
+
+        def _restore():
+            if not self.exists() or generation != self.flash_generation:
+                return
+            self.canvas.itemconfig(item_id, outline=HIGHLIGHT_COLOR)
+
+        self.window.after(200, _restore)
+
+    def _handle_click(self, event):
+        """Copy the clicked word and flash its rectangle without activating the overlay."""
+        if not self.exists():
+            return
+        region = self._find_clicked_region(event.x, event.y)
+        if region is None:
+            return
+        text = region.get("text", "")
+        if not text:
+            return
+        logger.debug("Copied overlay match text=%r", text)
+        self._copy_text_to_clipboard(text)
+        self._flash_region(region)
 
     def draw_matches(self, matches):
         """Draw gold rectangles at absolute screen coordinates."""
@@ -80,6 +118,7 @@ class OverlayWindow:
         self.clear()
         if not matches:
             return
+        self.flash_generation += 1
         for item in matches:
             x1 = int(item["x"])
             y1 = int(item["y"])
@@ -95,7 +134,7 @@ class OverlayWindow:
                 w,
                 h,
             )
-            self.canvas.create_rectangle(
+            canvas_id = self.canvas.create_rectangle(
                 x1,
                 y1,
                 x2,
@@ -103,6 +142,16 @@ class OverlayWindow:
                 outline=HIGHLIGHT_COLOR,
                 width=4,
                 tags="highlight",
+            )
+            self.match_regions.append(
+                {
+                    "x1": x1,
+                    "y1": y1,
+                    "x2": x2,
+                    "y2": y2,
+                    "text": item.get("original", ""),
+                    "canvas_id": canvas_id,
+                }
             )
         self.canvas.tag_raise("highlight")
         self.window.lift()

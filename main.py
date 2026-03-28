@@ -4,6 +4,7 @@ import ctypes
 import logging
 import queue
 import threading
+import time
 
 # Set DPI awareness before UI modules create any windows.
 ctypes.windll.user32.SetProcessDPIAware()
@@ -12,9 +13,14 @@ import keyboard
 import win32gui
 
 from config import (
+    BLOCKED_CONSOLE_KEYWORDS,
+    BLOCKED_WINDOW_PREFIXES,
+    BLOCKED_WINDOW_TITLES,
+    DESKTOP_WINDOW_KEYWORD,
     FUZZY_WEIGHT,
     GLOBAL_SHORTCUT,
     MAX_RESULTS,
+    MIN_TARGET_TITLE_LENGTH,
     POLL_MS,
     SEMANTIC_WEIGHT,
 )
@@ -46,8 +52,13 @@ class IntegratedSearchbarApp(SearchbarApp):
         self.latest_query = ""
         self.latest_fuzzy_results = []
         self.last_draw_signature = None
+        self.last_search_signature = None
+        self.last_search_query = ""
+        self.last_search_index_version = -1
         self.ocr_ready = False
         self.current_index = []
+        self.current_index_signature = None
+        self.current_index_version = 0
         self.target_hwnd = None
         self.locked_hwnd = None
         super().__init__()
@@ -69,7 +80,7 @@ class IntegratedSearchbarApp(SearchbarApp):
     def _handle_global_shortcut(self):
         """Capture the current foreground content window before Uniseba takes focus."""
         hwnd = win32gui.GetForegroundWindow()
-        if hwnd and hwnd not in self.own_window_handles():
+        if self._is_valid_shortcut_target(hwnd):
             self.target_hwnd = hwnd
             self.locked_hwnd = hwnd
             title = win32gui.GetWindowText(hwnd)
@@ -79,6 +90,28 @@ class IntegratedSearchbarApp(SearchbarApp):
             title = win32gui.GetWindowText(hwnd) if hwnd else ""
             logger.debug("Shortcut ignored foreground window hwnd=%s title=%r", hwnd, title)
         self.after(0, self.toggle_visibility)
+
+    def _is_valid_shortcut_target(self, hwnd):
+        """Reject obvious non-content windows before locking the current foreground window."""
+        if not hwnd or not win32gui.IsWindow(hwnd) or hwnd in self.own_window_handles():
+            return False
+
+        class_name = win32gui.GetClassName(hwnd).lower()
+        if class_name in {"progman", "workerw"}:
+            return False
+
+        raw_title = win32gui.GetWindowText(hwnd).strip()
+        if len(raw_title) < MIN_TARGET_TITLE_LENGTH:
+            return False
+
+        title = raw_title.lower()
+        if DESKTOP_WINDOW_KEYWORD in title:
+            return False
+        if title in BLOCKED_WINDOW_TITLES or title.startswith(BLOCKED_WINDOW_PREFIXES):
+            return False
+        if class_name == "consolewindowclass" and any(keyword in title for keyword in BLOCKED_CONSOLE_KEYWORDS):
+            return False
+        return True
 
     def on_hidden(self):
         """Clear overlay state when the base UI hides."""
@@ -103,11 +136,13 @@ class IntegratedSearchbarApp(SearchbarApp):
 
     def _set_matches(self, matches):
         """Redraw only when the overlay input actually changed."""
-        signature = tuple((item["x"], item["y"], item["w"], item["h"], item.get("original", "")) for item in matches)
+        signature = self._build_signature(matches)
         if signature == self.last_draw_signature:
-            return
+            return 0.0
         self.last_draw_signature = signature
+        draw_started_at = time.perf_counter()
         self.overlay.draw_matches(matches)
+        return (time.perf_counter() - draw_started_at) * 1000.0
 
     def _drain_latest_index(self):
         """Pick the most recent OCR index update from the queue."""
@@ -115,8 +150,21 @@ class IntegratedSearchbarApp(SearchbarApp):
         while not self.index_queue.empty():
             latest = self.index_queue.get_nowait()
         if latest is not None:
+            latest_signature = self._build_signature(latest)
+            if latest_signature != self.current_index_signature:
+                self.current_index = latest
+                self.current_index_signature = latest_signature
+                self.current_index_version += 1
+                return latest
             self.current_index = latest
-        return latest
+        return None
+
+    def _build_signature(self, items):
+        """Create a stable signature for OCR indexes and visible result sets."""
+        return tuple(
+            (item["x"], item["y"], item["w"], item["h"], item.get("original", ""))
+            for item in items
+        )
 
     def _phrase_tokens(self, query):
         """Return normalized tokens for phrase-mode matching."""
@@ -243,14 +291,46 @@ class IntegratedSearchbarApp(SearchbarApp):
         index = self._drain_latest_index()
         if index is None:
             index = self.current_index
+        search_started_at = time.perf_counter()
+        phrase_started_at = time.perf_counter()
         phrase_results = self._build_phrase_results(query, index)
+        phrase_ms = (time.perf_counter() - phrase_started_at) * 1000.0
+        fuzzy_started_at = time.perf_counter()
         fuzzy_results = fuzzy_search(query, index, limit=MAX_RESULTS)
+        fuzzy_ms = (time.perf_counter() - fuzzy_started_at) * 1000.0
         fuzzy_results = self._combine_phrase_and_single_results(phrase_results, fuzzy_results)
+        result_signature = self._build_signature(fuzzy_results)
+        if (
+            query == self.last_search_query
+            and result_signature == self.last_search_signature
+            and self.current_index_version == self.last_search_index_version
+        ):
+            logger.debug(
+                "Skipped redundant search apply query=%r matches=%s index_version=%s",
+                query,
+                len(fuzzy_results),
+                self.current_index_version,
+            )
+            self.result_label.configure(text=f"{len(fuzzy_results)} matches")
+            return
         self.latest_fuzzy_results = fuzzy_results
+        self.last_search_query = query
+        self.last_search_signature = result_signature
+        self.last_search_index_version = self.current_index_version
         sample = fuzzy_results[0] if fuzzy_results else None
-        logger.debug("Fuzzy search completed query=%r matches=%s sample=%r", query, len(fuzzy_results), sample)
+        overlay_ms = self._set_matches(fuzzy_results)
+        total_search_ms = (time.perf_counter() - search_started_at) * 1000.0
+        logger.info(
+            "Search applied query=%r matches=%s phrase_ms=%.1f fuzzy_ms=%.1f overlay_ms=%.1f total_search_ms=%.1f sample=%r",
+            query,
+            len(fuzzy_results),
+            phrase_ms,
+            fuzzy_ms,
+            overlay_ms,
+            total_search_ms,
+            sample,
+        )
         self.result_label.configure(text=f"{len(fuzzy_results)} matches")
-        self._set_matches(fuzzy_results)
 
         if self.ai_var.get():
             self.search_token += 1
@@ -286,9 +366,18 @@ class IntegratedSearchbarApp(SearchbarApp):
             latest = self.semantic_result_queue.get_nowait()
 
         if latest is not None and latest["token"] == self.search_token and self.ai_var.get():
+            merge_started_at = time.perf_counter()
             merged = self._merge_results(self.latest_fuzzy_results, latest["results"])
+            merge_ms = (time.perf_counter() - merge_started_at) * 1000.0
             self.result_label.configure(text=f"{len(merged)} matches")
-            self._set_matches(merged)
+            overlay_ms = self._set_matches(merged)
+            logger.info(
+                "Semantic merge applied token=%s matches=%s merge_ms=%.1f overlay_ms=%.1f",
+                latest["token"],
+                len(merged),
+                merge_ms,
+                overlay_ms,
+            )
 
         self.search_poll_job = self.after(POLL_MS, self._poll_semantic_results)
 
