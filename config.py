@@ -85,9 +85,12 @@ OCR_STABILITY_COUNT_THRESHOLD = 40
 # Force a refresh even when no region changed after this many milliseconds.
 FORCED_OCR_INTERVAL_MS = 200
 
-# Treat OCR as visibly refreshing when the visible content changed substantially.
-MAJOR_CHANGE_REGION_COUNT = 4
-MAJOR_CHANGE_REGION_RATIO = 0.20
+# Treat OCR as visibly refreshing only when the visible content changed dramatically.
+# This keeps the stale-result guard for true page/view swaps without making
+# judges wait through a "Refreshing visible text..." state on ordinary edits,
+# pane updates, or medium scroll movement.
+MAJOR_CHANGE_REGION_COUNT = 18
+MAJOR_CHANGE_REGION_RATIO = 0.50
 
 # Expand the floating search UI exclusion zone slightly so OCR misses border/shadow bleed.
 SEARCH_UI_EXCLUSION_PADDING = 24
