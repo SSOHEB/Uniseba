@@ -21,8 +21,11 @@ from config import (
     GLOBAL_SHORTCUT,
     MAX_RESULTS,
     MIN_TARGET_TITLE_LENGTH,
+    MIN_QUERY_LENGTH,
     POLL_MS,
+    SEARCH_UI_EXCLUSION_PADDING,
     SEMANTIC_WEIGHT,
+    SELF_UI_PHRASES,
 )
 from search.fuzzy import fuzzy_search
 from threads.ocr_thread import OCRThread
@@ -59,6 +62,7 @@ class IntegratedSearchbarApp(SearchbarApp):
         self.current_index = []
         self.current_index_signature = None
         self.current_index_version = 0
+        self.ocr_refreshing = False
         self.target_hwnd = None
         self.locked_hwnd = None
         super().__init__()
@@ -148,7 +152,18 @@ class IntegratedSearchbarApp(SearchbarApp):
         """Pick the most recent OCR index update from the queue."""
         latest = None
         while not self.index_queue.empty():
-            latest = self.index_queue.get_nowait()
+            item = self.index_queue.get_nowait()
+            if isinstance(item, dict):
+                item_type = item.get("type")
+                if item_type == "refreshing":
+                    self.ocr_refreshing = True
+                    continue
+                if item_type == "index":
+                    latest = item.get("index", [])
+                    self.ocr_refreshing = False
+                    continue
+            latest = item
+            self.ocr_refreshing = False
         if latest is not None:
             latest_signature = self._build_signature(latest)
             if latest_signature != self.current_index_signature:
@@ -165,6 +180,52 @@ class IntegratedSearchbarApp(SearchbarApp):
             (item["x"], item["y"], item["w"], item["h"], item.get("original", ""))
             for item in items
         )
+
+    def _search_ui_exclusion_rects(self):
+        """Return the visible search window bounds so OCR/highlights can ignore our own UI."""
+        if not self.visible or not self.winfo_exists():
+            return []
+        try:
+            left = self.winfo_rootx()
+            top = self.winfo_rooty()
+            right = left + self.winfo_width()
+            bottom = top + self.winfo_height()
+        except Exception:
+            return []
+        if right <= left or bottom <= top:
+            return []
+        return [
+            {
+                "left": left - SEARCH_UI_EXCLUSION_PADDING,
+                "top": top - SEARCH_UI_EXCLUSION_PADDING,
+                "right": right + SEARCH_UI_EXCLUSION_PADDING,
+                "bottom": bottom + SEARCH_UI_EXCLUSION_PADDING,
+            }
+        ]
+
+    def _filter_excluded_matches(self, matches):
+        """Drop matches that overlap the floating search UI itself."""
+        exclusion_rects = self._search_ui_exclusion_rects()
+
+        filtered = []
+        for item in matches:
+            original = str(item.get("original", "")).strip().lower()
+            if any(phrase in original for phrase in SELF_UI_PHRASES):
+                continue
+            left = item["x"]
+            top = item["y"]
+            right = left + item["w"]
+            bottom = top + item["h"]
+            overlaps = False
+            if exclusion_rects:
+                for rect in exclusion_rects:
+                    if right <= rect["left"] or left >= rect["right"] or bottom <= rect["top"] or top >= rect["bottom"]:
+                        continue
+                    overlaps = True
+                    break
+            if not overlaps:
+                filtered.append(item)
+        return filtered
 
     def _phrase_tokens(self, query):
         """Return normalized tokens for phrase-mode matching."""
@@ -283,7 +344,7 @@ class IntegratedSearchbarApp(SearchbarApp):
             self.result_label.configure(text="Waiting for OCR...")
             self.overlay.clear()
             return
-        if len(query) < 2:
+        if len(query) < MIN_QUERY_LENGTH:
             self.result_label.configure(text="0 matches")
             self.overlay.clear()
             return
@@ -291,6 +352,10 @@ class IntegratedSearchbarApp(SearchbarApp):
         index = self._drain_latest_index()
         if index is None:
             index = self.current_index
+        if self.ocr_refreshing:
+            self.result_label.configure(text="Refreshing visible text...")
+            self.overlay.clear()
+            return
         search_started_at = time.perf_counter()
         phrase_started_at = time.perf_counter()
         phrase_results = self._build_phrase_results(query, index)
@@ -299,6 +364,7 @@ class IntegratedSearchbarApp(SearchbarApp):
         fuzzy_results = fuzzy_search(query, index, limit=MAX_RESULTS)
         fuzzy_ms = (time.perf_counter() - fuzzy_started_at) * 1000.0
         fuzzy_results = self._combine_phrase_and_single_results(phrase_results, fuzzy_results)
+        fuzzy_results = self._filter_excluded_matches(fuzzy_results)
         result_signature = self._build_signature(fuzzy_results)
         if (
             query == self.last_search_query
@@ -352,8 +418,11 @@ class IntegratedSearchbarApp(SearchbarApp):
         if updated is not None:
             self.ocr_ready = True
             logger.info("Received OCR index update size=%s", len(updated))
-        if updated is not None and self.visible and len(self.entry.get().strip()) >= 2:
+        if updated is not None and self.visible and len(self.entry.get().strip()) >= MIN_QUERY_LENGTH:
             self._apply_search()
+        elif self.ocr_refreshing and self.visible and len(self.entry.get().strip()) >= MIN_QUERY_LENGTH:
+            self.result_label.configure(text="Refreshing visible text...")
+            self.overlay.clear()
         self.index_poll_job = self.after(POLL_MS, self._poll_index_queue)
 
     def _poll_semantic_results(self):
@@ -368,6 +437,7 @@ class IntegratedSearchbarApp(SearchbarApp):
         if latest is not None and latest["token"] == self.search_token and self.ai_var.get():
             merge_started_at = time.perf_counter()
             merged = self._merge_results(self.latest_fuzzy_results, latest["results"])
+            merged = self._filter_excluded_matches(merged)
             merge_ms = (time.perf_counter() - merge_started_at) * 1000.0
             self.result_label.configure(text=f"{len(merged)} matches")
             overlay_ms = self._set_matches(merged)
@@ -478,6 +548,7 @@ def main():
         index_queue,
         stop_event,
         excluded_hwnds=app.own_window_handles,
+        exclusion_rects=app._search_ui_exclusion_rects,
         preferred_hwnd=lambda: app.target_hwnd,
         locked_hwnd=lambda: app.locked_hwnd,
         lock_active=lambda: app.locked_hwnd is not None,

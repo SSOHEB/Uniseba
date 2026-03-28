@@ -85,6 +85,20 @@ OCR_STABILITY_COUNT_THRESHOLD = 40
 # Force a refresh even when no region changed after this many milliseconds.
 FORCED_OCR_INTERVAL_MS = 200
 
+# Treat OCR as visibly refreshing when the visible content changed substantially.
+MAJOR_CHANGE_REGION_COUNT = 4
+MAJOR_CHANGE_REGION_RATIO = 0.20
+
+# Expand the floating search UI exclusion zone slightly so OCR misses border/shadow bleed.
+SEARCH_UI_EXCLUSION_PADDING = 24
+
+# Obvious self-UI phrases that should never be returned as user-facing search matches.
+SELF_UI_PHRASES = (
+    "uniseba search",
+    "search ui",
+    "refreshing visible text",
+)
+
 
 # OCR target filtering settings
 

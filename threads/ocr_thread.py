@@ -6,7 +6,7 @@ import time
 from queue import Queue
 
 from mss import mss
-from PIL import Image
+from PIL import Image, ImageDraw
 import win32con
 import win32gui
 
@@ -20,6 +20,8 @@ from config import (
     CHANGE_THUMB_SIZE,
     DESKTOP_WINDOW_KEYWORD,
     FORCED_OCR_INTERVAL_MS,
+    MAJOR_CHANGE_REGION_COUNT,
+    MAJOR_CHANGE_REGION_RATIO,
     MIN_TARGET_HEIGHT,
     MIN_TARGET_TITLE_LENGTH,
     MIN_TARGET_WIDTH,
@@ -27,6 +29,8 @@ from config import (
     OCR_STABILITY_COUNT_THRESHOLD,
     OCR_UPDATE_DEBOUNCE_MS,
     SCAN_INTERVAL_MS,
+    SEARCH_UI_EXCLUSION_PADDING,
+    SELF_UI_PHRASES,
 )
 from ocr.engine import recognize_image
 from ocr.index import build_ocr_index
@@ -42,6 +46,7 @@ class OCRThread(threading.Thread):
         index_queue: Queue,
         stop_event: threading.Event,
         excluded_hwnds=None,
+        exclusion_rects=None,
         preferred_hwnd=None,
         locked_hwnd=None,
         lock_active=None,
@@ -50,6 +55,7 @@ class OCRThread(threading.Thread):
         self.index_queue = index_queue
         self.stop_event = stop_event
         self.excluded_hwnds = excluded_hwnds or (lambda: set())
+        self.exclusion_rects = exclusion_rects or (lambda: [])
         self.preferred_hwnd = preferred_hwnd or (lambda: None)
         self.locked_hwnd = locked_hwnd or (lambda: None)
         self.lock_active = lock_active or (lambda: False)
@@ -116,6 +122,14 @@ class OCRThread(threading.Thread):
                         len(changed_regions),
                         total_regions,
                     )
+                if self._is_major_change(changed_regions, total_regions):
+                    self.index_queue.put(
+                        {
+                            "type": "refreshing",
+                            "changed_regions": len(changed_regions),
+                            "total_regions": total_regions,
+                        }
+                    )
                 self.current_image = image
                 if now - self.last_update_at < (OCR_UPDATE_DEBOUNCE_MS / 1000.0):
                     total_cycle_ms = (time.perf_counter() - cycle_started_at) * 1000.0
@@ -149,7 +163,7 @@ class OCRThread(threading.Thread):
                     timing["index_ms"],
                     total_cycle_ms,
                 )
-                self.index_queue.put(index)
+                self.index_queue.put({"type": "index", "index": index})
             except Exception:
                 self.logger.exception("OCR thread failed while updating the index.")
 
@@ -295,7 +309,55 @@ class OCRThread(threading.Thread):
         with mss() as sct:
             shot = sct.grab(rect)
             image = Image.frombytes("RGB", shot.size, shot.rgb)
+        image = self._mask_excluded_regions(image, rect)
         return image, rect
+
+    def _mask_excluded_regions(self, image, capture_rect):
+        """Black out our own floating search UI if it overlaps the captured content."""
+        exclusion_rects = self._expanded_exclusion_rects()
+        if not exclusion_rects:
+            return image
+
+        draw = ImageDraw.Draw(image)
+        capture_left = capture_rect["left"]
+        capture_top = capture_rect["top"]
+        capture_right = capture_left + capture_rect["width"]
+        capture_bottom = capture_top + capture_rect["height"]
+
+        for rect in exclusion_rects:
+            left = max(rect["left"], capture_left)
+            top = max(rect["top"], capture_top)
+            right = min(rect["right"], capture_right)
+            bottom = min(rect["bottom"], capture_bottom)
+            if right <= left or bottom <= top:
+                continue
+            draw.rectangle(
+                (
+                    left - capture_left,
+                    top - capture_top,
+                    right - capture_left,
+                    bottom - capture_top,
+                ),
+                fill="black",
+            )
+        return image
+
+    def _expanded_exclusion_rects(self):
+        """Pad self-UI exclusion rectangles so OCR also misses border/shadow bleed."""
+        rects = self.exclusion_rects() or []
+        if not rects:
+            return []
+        expanded = []
+        for rect in rects:
+            expanded.append(
+                {
+                    "left": rect["left"] - SEARCH_UI_EXCLUSION_PADDING,
+                    "top": rect["top"] - SEARCH_UI_EXCLUSION_PADDING,
+                    "right": rect["right"] + SEARCH_UI_EXCLUSION_PADDING,
+                    "bottom": rect["bottom"] + SEARCH_UI_EXCLUSION_PADDING,
+                }
+            )
+        return expanded
 
     def _normalize_hwnd(self, hwnd):
         """Promote child/owned windows to their top-level root window before capture."""
@@ -319,6 +381,15 @@ class OCRThread(threading.Thread):
             return None
         return {"left": client_left, "top": client_top, "width": width, "height": height}
 
+    def _is_major_change(self, changed_regions, total_regions):
+        """Flag scroll/page transitions so the UI can avoid showing stale results as current."""
+        changed_count = len(changed_regions)
+        if changed_count >= MAJOR_CHANGE_REGION_COUNT:
+            return True
+        if total_regions <= 0:
+            return False
+        return (changed_count / float(total_regions)) >= MAJOR_CHANGE_REGION_RATIO
+
     def _build_full_index(self, image, rect):
         """Run OCR on the full captured window so geometry can be validated end to end."""
         ocr_started_at = time.perf_counter()
@@ -326,8 +397,33 @@ class OCRThread(threading.Thread):
         ocr_ms = (time.perf_counter() - ocr_started_at) * 1000.0
         index_started_at = time.perf_counter()
         index = build_ocr_index(words)
+        index = self._filter_excluded_index_items(index)
         index_ms = (time.perf_counter() - index_started_at) * 1000.0
         return index, {"ocr_ms": ocr_ms, "index_ms": index_ms}
+
+    def _filter_excluded_index_items(self, index):
+        """Drop OCR items that overlap our search UI or clearly repeat self-UI phrases."""
+        exclusion_rects = self._expanded_exclusion_rects()
+        filtered = []
+        for item in index:
+            original = str(item.get("original", "")).strip().lower()
+            if any(phrase in original for phrase in SELF_UI_PHRASES):
+                continue
+            if exclusion_rects:
+                left = item["x"]
+                top = item["y"]
+                right = left + item["w"]
+                bottom = top + item["h"]
+                overlaps = False
+                for rect in exclusion_rects:
+                    if right <= rect["left"] or left >= rect["right"] or bottom <= rect["top"] or top >= rect["bottom"]:
+                        continue
+                    overlaps = True
+                    break
+                if overlaps:
+                    continue
+            filtered.append(item)
+        return filtered
 
     def _prepare_region_image(self, image):
         """Slightly downscale OCR regions so partial passes stay lightweight."""
