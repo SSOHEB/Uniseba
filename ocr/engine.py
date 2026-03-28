@@ -25,11 +25,11 @@ logger.info("EasyOCR initialized on %s", "GPU" if gpu_available else "CPU")
 def recognize_image(image, window_rect=None, min_height=8):
     """Run OCR on a PIL image and return filtered words with absolute boxes."""
     scale = 1
-    if image.height < 1200:
+    # Upscaling can improve OCR on very small captures, but it makes full-window OCR
+    # dramatically slower. Only upscale genuinely small images.
+    if image.height < 600 and (image.width * image.height) < 900_000:
         scale = 2
-        new_w = image.width * scale
-        new_h = image.height * scale
-        image = image.resize((new_w, new_h), PILImage.LANCZOS)
+        image = image.resize((image.width * scale, image.height * scale), PILImage.LANCZOS)
 
     numpy_image = np.array(image)
     results = reader.readtext(numpy_image, detail=1, paragraph=False)

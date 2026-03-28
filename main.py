@@ -353,9 +353,9 @@ class IntegratedSearchbarApp(SearchbarApp):
         if index is None:
             index = self.current_index
         if self.ocr_refreshing:
-            self.result_label.configure(text="Refreshing visible text...")
-            self.overlay.clear()
-            return
+            # Keep the last stable results visible while OCR catches up. This avoids
+            # the UI feeling "stuck" during long OCR cycles.
+            self.result_label.configure(text="Updating visible text...")
         search_started_at = time.perf_counter()
         phrase_started_at = time.perf_counter()
         phrase_results = self._build_phrase_results(query, index)
@@ -421,8 +421,8 @@ class IntegratedSearchbarApp(SearchbarApp):
         if updated is not None and self.visible and len(self.entry.get().strip()) >= MIN_QUERY_LENGTH:
             self._apply_search()
         elif self.ocr_refreshing and self.visible and len(self.entry.get().strip()) >= MIN_QUERY_LENGTH:
-            self.result_label.configure(text="Refreshing visible text...")
-            self.overlay.clear()
+            # Do not clear existing highlights; just communicate that OCR is catching up.
+            self.result_label.configure(text="Updating visible text...")
         self.index_poll_job = self.after(POLL_MS, self._poll_index_queue)
 
     def _poll_semantic_results(self):

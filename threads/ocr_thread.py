@@ -28,6 +28,10 @@ from config import (
     OCR_DOWNSCALE,
     OCR_STABILITY_COUNT_THRESHOLD,
     OCR_UPDATE_DEBOUNCE_MS,
+    PARTIAL_OCR_ENABLED,
+    PARTIAL_OCR_MAX_AREA_RATIO,
+    PARTIAL_OCR_MAX_RECTS,
+    PARTIAL_OCR_PADDING_PX,
     SCAN_INTERVAL_MS,
     SEARCH_UI_EXCLUSION_PADDING,
     SELF_UI_PHRASES,
@@ -142,7 +146,17 @@ class OCRThread(threading.Thread):
                     self.stop_event.wait(SCAN_INTERVAL_MS / 1000.0)
                     continue
 
-                index, timing = self._build_full_index(image, rect)
+                full_window = True
+                if (
+                    PARTIAL_OCR_ENABLED
+                    and not force_refresh
+                    and not self._is_major_change(changed_regions, total_regions)
+                    and self.last_stable_index
+                ):
+                    index, timing, full_window = self._build_incremental_index(image, rect, changed_regions)
+                else:
+                    index, timing = self._build_full_index(image, rect)
+                    full_window = True
                 index = self._stabilize_index(index)
                 if index is None:
                     self.logger.info("Discarded unstable OCR frame and kept the last stable index")
@@ -154,7 +168,8 @@ class OCRThread(threading.Thread):
                 self.last_forced_ocr_at = now
                 total_cycle_ms = (time.perf_counter() - cycle_started_at) * 1000.0
                 self.logger.info(
-                    "Published OCR index full_window=1 changed_regions=%s total_words=%s capture_ms=%.1f change_ms=%.1f ocr_ms=%.1f index_ms=%.1f total_cycle_ms=%.1f",
+                    "Published OCR index full_window=%s changed_regions=%s total_words=%s capture_ms=%.1f change_ms=%.1f ocr_ms=%.1f index_ms=%.1f total_cycle_ms=%.1f",
+                    1 if full_window else 0,
                     len(changed_regions),
                     len(index),
                     capture_ms,
@@ -210,6 +225,7 @@ class OCRThread(threading.Thread):
                 "Rejected bootstrap target hwnd=%s class=%r because it is a desktop shell window",
                 hwnd,
                 class_name,
+                título=class_name,
             )
             return False
         raw_title = win32gui.GetWindowText(hwnd).strip()
@@ -400,6 +416,107 @@ class OCRThread(threading.Thread):
         index = self._filter_excluded_index_items(index)
         index_ms = (time.perf_counter() - index_started_at) * 1000.0
         return index, {"ocr_ms": ocr_ms, "index_ms": index_ms}
+
+    def _build_incremental_index(self, image, rect, changed_regions):
+        """OCR only changed regions and merge into the last stable index."""
+        merged_regions = self._merge_changed_regions(changed_regions, image.width, image.height)
+        if not merged_regions:
+            return self._build_full_index(image, rect) + (True,)
+
+        image_area = max(1, int(image.width) * int(image.height))
+        merged_area = sum((r["right"] - r["left"]) * (r["bottom"] - r["top"]) for r in merged_regions)
+        if len(merged_regions) > PARTIAL_OCR_MAX_RECTS or (merged_area / float(image_area)) > PARTIAL_OCR_MAX_AREA_RATIO:
+            return self._build_full_index(image, rect) + (True,)
+
+        ocr_started_at = time.perf_counter()
+        new_entries = []
+        for region in merged_regions:
+            crop = image.crop((region["left"], region["top"], region["right"], region["bottom"]))
+            crop = self._prepare_region_image(crop)
+            words = recognize_image(
+                crop,
+                {
+                    "left": rect["left"] + region["left"],
+                    "top": rect["top"] + region["top"],
+                },
+            )
+            region_index = build_ocr_index(words)
+            region_index = self._filter_excluded_index_items(region_index)
+            new_entries.extend(region_index)
+        ocr_ms = (time.perf_counter() - ocr_started_at) * 1000.0
+
+        index_started_at = time.perf_counter()
+        abs_regions = []
+        for region in merged_regions:
+            abs_regions.append(
+                {
+                    "left": rect["left"] + region["left"],
+                    "top": rect["top"] + region["top"],
+                    "right": rect["left"] + region["right"],
+                    "bottom": rect["top"] + region["bottom"],
+                }
+            )
+
+        def overlaps_any(item):
+            left = item["x"]
+            top = item["y"]
+            right = left + item["w"]
+            bottom = top + item["h"]
+            for r in abs_regions:
+                if right <= r["left"] or left >= r["right"] or bottom <= r["top"] or top >= r["bottom"]:
+                    continue
+                return True
+            return False
+
+        merged = [item for item in self.last_stable_index if not overlaps_any(item)]
+        merged.extend(new_entries)
+        seen = set()
+        deduped = []
+        for item in merged:
+            key = (item.get("x"), item.get("y"), item.get("w"), item.get("h"), item.get("original", ""))
+            if key in seen:
+                continue
+            seen.add(key)
+            deduped.append(item)
+        index_ms = (time.perf_counter() - index_started_at) * 1000.0
+        return deduped, {"ocr_ms": ocr_ms, "index_ms": index_ms}, False
+
+    def _merge_changed_regions(self, changed_regions, width, height):
+        """Merge overlapping/adjacent change rectangles into a few OCR crops."""
+        if not changed_regions:
+            return []
+
+        rects = []
+        for region in changed_regions:
+            left = max(0, int(region.get("left", 0)) - PARTIAL_OCR_PADDING_PX)
+            top = max(0, int(region.get("top", 0)) - PARTIAL_OCR_PADDING_PX)
+            right = min(width, left + int(region.get("width", 0)) + (2 * PARTIAL_OCR_PADDING_PX))
+            bottom = min(height, top + int(region.get("height", 0)) + (2 * PARTIAL_OCR_PADDING_PX))
+            if right <= left or bottom <= top:
+                continue
+            rects.append({"left": left, "top": top, "right": right, "bottom": bottom})
+
+        rects.sort(key=lambda r: (r["left"], r["top"]))
+        merged = []
+        for r in rects:
+            placed = False
+            for target in merged:
+                if (
+                    r["right"] < target["left"]
+                    or r["left"] > target["right"]
+                    or r["bottom"] < target["top"]
+                    or r["top"] > target["bottom"]
+                ):
+                    continue
+                target["left"] = min(target["left"], r["left"])
+                target["top"] = min(target["top"], r["top"])
+                target["right"] = max(target["right"], r["right"])
+                target["bottom"] = max(target["bottom"], r["bottom"])
+                placed = True
+                break
+            if not placed:
+                merged.append(dict(r))
+        return merged
 
     def _filter_excluded_index_items(self, index):
         """Drop OCR items that overlap our search UI or clearly repeat self-UI phrases."""

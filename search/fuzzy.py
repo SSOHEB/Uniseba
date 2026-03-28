@@ -8,6 +8,70 @@ from config import FUZZY_THRESHOLD, MAX_RESULTS, MIN_CONFIDENCE, MIN_QUERY_LENGT
 
 logger = logging.getLogger("uniseba.search.fuzzy")
 
+# Common glue-words that should not outrank more specific matches when the user
+# types a longer query (e.g. "gandhi" should not primarily match "and").
+_STOPWORDS = frozenset(
+    {
+        "a",
+        "an",
+        "and",
+        "are",
+        "as",
+        "at",
+        "be",
+        "by",
+        "for",
+        "from",
+        "in",
+        "is",
+        "it",
+        "of",
+        "on",
+        "or",
+        "that",
+        "the",
+        "to",
+        "was",
+        "were",
+        "with",
+    }
+)
+
+
+def _rank_score(query, word, score):
+    """Combine RapidFuzz score with heuristics that improve result ordering."""
+    qlen = len(query)
+    wlen = len(word)
+    base = float(score) / 100.0
+    bonus = 0.0
+    penalty = 0.0
+
+    if word == query:
+        bonus += 0.15
+    if query and query in word:
+        bonus += 0.10
+
+    # If the candidate is just a substring inside the query, prefer longer matches.
+    if word in query and word != query:
+        penalty += 0.12
+        if wlen <= 3 and qlen >= 5:
+            penalty += 0.20
+
+    # Penalize large length mismatches so "not" loses to "notes".
+    penalty += abs(wlen - qlen) * 0.01
+
+    # When the query is a meaningful prefix, down-rank common verb-y endings that
+    # tend to be incidental matches ("refer" -> "referred" vs "references").
+    if qlen >= 4 and word.startswith(query) and word != query:
+        if word.endswith("ed") or word.endswith("ing"):
+            penalty += 0.06
+
+    # Down-rank stopwords for longer queries without removing them completely.
+    if qlen >= 4 and word in _STOPWORDS:
+        penalty += 0.25
+
+    return base + bonus - penalty
+
 
 def is_viable_search_word(query, entry):
     """Reject only the most obvious OCR noise before fuzzy matching."""
@@ -60,7 +124,9 @@ def fuzzy_search(query, index, limit=MAX_RESULTS, threshold=FUZZY_THRESHOLD):
         if not containment_match and float(score) < threshold:
             continue
         entry["fuzzy_score"] = float(score) / 100.0
+        entry["_rank_score"] = _rank_score(normalized_query, normalized_word, score)
         results.append(entry)
+    results.sort(key=lambda item: (item.get("_rank_score", 0.0), item.get("fuzzy_score", 0.0)), reverse=True)
     logger.debug("[FILTER] final_matches=%s", len(results))
     logger.debug("[FUZZY] query=%r matches=%s", query, len(results))
     for r in results[:5]:

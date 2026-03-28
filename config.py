@@ -76,6 +76,13 @@ CHANGE_THUMB_SIZE = (32, 32)
 # Downscale factor applied to OCR regions before they are sent into the OCR engine.
 OCR_DOWNSCALE = 0.75
 
+# Incremental OCR settings: when the screen changes, OCR only the changed region(s)
+# and merge into the last stable index. This is the primary lever for fast scroll sync.
+PARTIAL_OCR_ENABLED = True
+PARTIAL_OCR_PADDING_PX = 12
+PARTIAL_OCR_MAX_RECTS = 4
+PARTIAL_OCR_MAX_AREA_RATIO = 0.55
+
 # Minimum time between published OCR updates, in milliseconds.
 OCR_UPDATE_DEBOUNCE_MS = 100
 
@@ -83,7 +90,8 @@ OCR_UPDATE_DEBOUNCE_MS = 100
 OCR_STABILITY_COUNT_THRESHOLD = 40
 
 # Force a refresh even when no region changed after this many milliseconds.
-FORCED_OCR_INTERVAL_MS = 200
+# Keep this relatively large so we don't burn cycles re-OCRing identical screens.
+FORCED_OCR_INTERVAL_MS = 5000
 
 # Treat OCR as visibly refreshing only when the visible content changed dramatically.
 # This keeps the stale-result guard for true page/view swaps without making
