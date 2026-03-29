@@ -65,6 +65,7 @@ class IntegratedSearchbarApp(SearchbarApp):
         self.ocr_refreshing = False
         self.target_hwnd = None
         self.locked_hwnd = None
+        self._last_content_hwnd = None
         super().__init__()
         self.bind("<Escape>", lambda _event: self.hide_overlay())
         self.index_poll_job = self.after(POLL_MS, self._poll_index_queue)
@@ -82,17 +83,14 @@ class IntegratedSearchbarApp(SearchbarApp):
         )
 
     def _handle_global_shortcut(self):
-        """Capture the current foreground content window before Uniseba takes focus."""
-        hwnd = win32gui.GetForegroundWindow()
-        if self._is_valid_shortcut_target(hwnd):
+        hwnd = self._last_content_hwnd
+        if hwnd and win32gui.IsWindow(hwnd) and self._is_valid_shortcut_target(hwnd):
             self.target_hwnd = hwnd
             self.locked_hwnd = hwnd
             title = win32gui.GetWindowText(hwnd)
-            logger.info("Shortcut captured foreground window hwnd=%s title=%r", hwnd, title)
-            logger.debug("Locked target window hwnd=%s title=%r", hwnd, title)
+            logger.info("Shortcut locked content window hwnd=%s title=%r", hwnd, title)
         else:
-            title = win32gui.GetWindowText(hwnd) if hwnd else ""
-            logger.debug("Shortcut ignored foreground window hwnd=%s title=%r", hwnd, title)
+            logger.debug("Shortcut fired but no valid content window was tracked")
         self.after(0, self.toggle_visibility)
 
     def _is_valid_shortcut_target(self, hwnd):
@@ -349,6 +347,14 @@ class IntegratedSearchbarApp(SearchbarApp):
             self.overlay.clear()
             return
 
+        current_index_version = self.current_index_version
+        if (
+            query == self.last_search_query
+            and current_index_version == self.last_search_index_version
+        ):
+            self.result_label.configure(text=f"{len(self.latest_fuzzy_results)} matches")
+            return
+
         index = self._drain_latest_index()
         if index is None:
             index = self.current_index
@@ -411,6 +417,9 @@ class IntegratedSearchbarApp(SearchbarApp):
 
     def _poll_index_queue(self):
         """Keep the current OCR index fresh without blocking the UI thread."""
+        hwnd = win32gui.GetForegroundWindow()
+        if hwnd and self._is_valid_shortcut_target(hwnd):
+            self._last_content_hwnd = hwnd
         if not self.running or not self.winfo_exists():
             return
 
