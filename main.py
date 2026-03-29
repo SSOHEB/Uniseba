@@ -12,6 +12,7 @@ ctypes.windll.user32.SetProcessDPIAware()
 import keyboard
 import win32gui
 
+from ai.gemini import summarize_screen_text
 from config import (
     BLOCKED_CONSOLE_KEYWORDS,
     BLOCKED_WINDOW_PREFIXES,
@@ -31,6 +32,7 @@ from search.fuzzy import fuzzy_search
 from threads.ocr_thread import OCRThread
 from threads.search_thread import SearchThread
 from ui.searchbar import SearchbarApp
+from ui.summary_panel import SummaryPanel
 from ui.tray import TrayController
 
 logger = logging.getLogger("uniseba.main")
@@ -67,6 +69,9 @@ class IntegratedSearchbarApp(SearchbarApp):
         self.locked_hwnd = None
         self._last_content_hwnd = None
         super().__init__()
+        self.summary_panel = SummaryPanel(self)
+        self._is_recording = False
+        self._corpus = set()
         self.bind("<Escape>", lambda _event: self.hide_overlay())
         self.index_poll_job = self.after(POLL_MS, self._poll_index_queue)
         self.search_poll_job = self.after(POLL_MS, self._poll_semantic_results)
@@ -135,6 +140,50 @@ class IntegratedSearchbarApp(SearchbarApp):
                 win32gui.GetWindowText(self.locked_hwnd),
             )
         super()._on_query_changed(event)
+
+    def _on_record_clicked(self):
+        if not self._is_recording:
+            self._is_recording = True
+            self._corpus = set()
+            self.record_btn.configure(
+                text="⏹ Stop",
+                bg="#27ae60",
+            )
+            logger.info("Corpus recording started")
+        else:
+            self._is_recording = False
+            self.record_btn.configure(
+                text="⏺ Record",
+                bg="#c0392b",
+            )
+            logger.info(
+                "Corpus recording stopped corpus_size=%s",
+                len(self._corpus),
+            )
+
+    def _on_summarize_clicked(self):
+        if self._is_recording:
+            self.summary_panel.show_summary(
+                "Please click Stop before summarizing."
+            )
+            return
+        if not self._corpus:
+            self.summary_panel.show_summary(
+                "Nothing recorded yet. Click Record, scroll through content, then click Stop."
+            )
+            return
+        text = " ".join(sorted(self._corpus))
+        self.summary_panel.show_loading()
+        import threading
+        threading.Thread(
+            target=self._run_summarize,
+            args=(text,),
+            daemon=True,
+        ).start()
+
+    def _run_summarize(self, text):
+        summary = summarize_screen_text(text)
+        self.after(0, lambda: self.summary_panel.show_summary(summary))
 
     def _set_matches(self, matches):
         """Redraw only when the overlay input actually changed."""
@@ -427,6 +476,18 @@ class IntegratedSearchbarApp(SearchbarApp):
         if updated is not None:
             self.ocr_ready = True
             logger.info("Received OCR index update size=%s", len(updated))
+
+        if self._is_recording and self.current_index:
+            before = len(self._corpus)
+            for item in self.current_index:
+                word = item.get("original", "").strip()
+                if word:
+                    self._corpus.add(word)
+            after = len(self._corpus)
+            if after != before:
+                self.result_label.configure(
+                    text=f"⏺ Capturing... {after} words"
+                )
         if updated is not None and self.visible and len(self.entry.get().strip()) >= MIN_QUERY_LENGTH:
             self._apply_search()
         elif self.ocr_refreshing and self.visible and len(self.entry.get().strip()) >= MIN_QUERY_LENGTH:

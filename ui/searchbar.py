@@ -1,6 +1,7 @@
 """Floating search bar UI base for the integrated overlay application."""
 
 import customtkinter as ctk
+import tkinter as tk
 
 from config import DEBOUNCE_MS
 from ui.overlay import OverlayWindow
@@ -37,9 +38,40 @@ class SearchbarApp(ctk.CTk):
         self.result_label = ctk.CTkLabel(self, text="0 matches")
         self.result_label.grid(row=1, column=0, padx=12, sticky="w")
 
+        button_frame = ctk.CTkFrame(self, fg_color="transparent")
+        button_frame.grid(row=1, column=0, padx=12, pady=(0, 12), sticky="e")
+
         self.ai_var = ctk.BooleanVar(value=True)
-        self.ai_toggle = ctk.CTkSwitch(self, text="AI", variable=self.ai_var)
-        self.ai_toggle.grid(row=1, column=0, padx=12, pady=(0, 12), sticky="e")
+        self.ai_toggle = ctk.CTkSwitch(button_frame, text="AI", variable=self.ai_var)
+        self.ai_toggle.pack(side="left")
+
+        self.record_btn = tk.Button(
+            button_frame,
+            text="⏺ Record",
+            bg="#c0392b",
+            fg="#ffffff",
+            font=("Segoe UI", 9),
+            relief=tk.FLAT,
+            command=self._on_record_clicked,
+        )
+        self.record_btn.pack(side=tk.LEFT, padx=(4, 0))
+
+        self.summarize_btn = tk.Button(
+            button_frame,
+            text="Summarize",
+            bg="#3a3a3a",
+            fg="#ffffff",
+            font=("Segoe UI", 9),
+            relief=tk.FLAT,
+            command=self._on_summarize_clicked,
+        )
+        self.summarize_btn.pack(side=tk.LEFT, padx=(4, 0))
+
+    def _on_record_clicked(self):
+        pass
+
+    def _on_summarize_clicked(self):
+        pass
 
     def toggle_visibility(self):
         """Show or hide the search bar and fullscreen overlay together."""
