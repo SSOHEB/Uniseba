@@ -119,21 +119,13 @@ class OverlayWindow:
         if not matches:
             return
         self.flash_generation += 1
+        # Logging every rectangle is extremely noisy and can impact perceived latency.
+        logger.debug("Drawing %s highlight rectangles", len(matches))
         for item in matches:
             x1 = int(item["x"])
             y1 = int(item["y"])
             x2 = x1 + int(item["w"])
             y2 = y1 + int(item["h"])
-            w = int(item["w"])
-            h = int(item["h"])
-            logger.debug(
-                "[DRAW] %r at x=%s y=%s w=%s h=%s",
-                item.get("original", ""),
-                x1,
-                y1,
-                w,
-                h,
-            )
             canvas_id = self.canvas.create_rectangle(
                 x1,
                 y1,

@@ -29,7 +29,10 @@ Runtime flow:
 1. User triggers the app.
 2. OCR thread chooses a valid target window.
 3. OCR thread captures the client area of that window.
-4. OCR thread runs full-window EasyOCR.
+4. OCR thread chooses between:
+   - scroll-translation update (shift previous index + OCR the newly revealed strip),
+   - incremental region OCR (OCR merged changed regions), or
+   - full-window EasyOCR fallback.
 5. OCR words are normalized into a searchable index.
 6. The index is pushed into a queue.
 7. The UI polls the queue and stores the newest index.
@@ -63,17 +66,15 @@ Current active behavior:
 - foreground-oriented target selection
 - client-area capture
 - change detection gating
-- full-window OCR execution
+- incremental OCR plus full-window OCR fallback
 - queue publishing
 
 Important current note:
+The optimization path is back, but only in ways that preserve coordinate correctness:
 
-The thread still contains traces of the older optimization design, but the trusted runtime path is now:
-
-- `_build_full_index()`
-- `_stabilize_index()` returns `new_index`
-
-That is the current safe-mode baseline.
+- scroll-specialized mode: estimate translation and OCR only the new strip
+- region mode: merge changed regions and OCR those crops at native scale
+- full-window OCR remains the fallback when the above are not safe
 
 ### `ocr/engine.py`
 
@@ -149,7 +150,7 @@ Current `recognize_image(image, window_rect=None, min_height=8)`:
 - converts PIL image to NumPy
 - runs EasyOCR `readtext(...)`
 - receives `(bbox, text, confidence)` tuples
-- filters out OCR confidence below `0.3`
+- filters out OCR confidence below `0.15`
 - converts polygon boxes into `x`, `y`, `w`, `h`
 - applies `window_rect` offset if provided
 
@@ -177,13 +178,15 @@ The recent debugging session proved something important:
 - the base OCR pipeline was correct
 - the optimization path was corrupting geometry
 
-Safe mode currently means:
+The key "safe mode" lesson still applies:
 
-- full-window OCR only
-- no partial-region remapping
-- no smoothing-based stabilization
+- avoid transformations that break coordinate integrity (especially downscaling crops without scaling boxes back up)
+- avoid smoothing/stabilization that mixes old and new coordinates incorrectly
 
-That is the current trusted architecture.
+The current trusted architecture is hybrid:
+
+- incremental OCR is allowed when it preserves coordinates
+- full-window OCR remains the correctness fallback
 
 ---
 
@@ -210,9 +213,9 @@ Current semantic behavior:
 
 ## Current Risks
 
-### 1. Partial OCR Is Not Reintroduced Yet
+### 1. Translation / Incremental OCR Can Be Wrong
 
-The app is currently accurate because it is using the simpler path.
+If scroll translation is mis-estimated, the shifted index can produce ghost hits or temporarily misaligned boxes until the next full-window refresh.
 
 ### 2. Dependency Stack Needs Maintenance
 
@@ -231,4 +234,4 @@ There is still overlap between:
 
 The current best mental model of the codebase is:
 
-Uniseba is a queue-based Windows OCR overlay whose currently trusted runtime uses client-area capture plus full-window EasyOCR to produce final absolute coordinates for search and drawing.
+Uniseba is a queue-based Windows OCR overlay whose trusted runtime uses client-area capture plus a hybrid OCR strategy (incremental when safe, full-window fallback when needed) to produce final absolute coordinates for search and drawing.

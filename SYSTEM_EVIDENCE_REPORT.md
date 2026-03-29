@@ -16,7 +16,8 @@ The findings below are based on these extracted logs:
 - `target_selected.log`
 - `ocr_index_quality.log`
 - `errors_only.log`
-- overlay log slices from `uniseba.log` filtered by `"[DRAW]"` and `"overlay_ms"`
+- overlay/search timing slices from `uniseba.log` (e.g., `"Search applied"` lines with `overlay_ms`)
+ - performance summaries from `analyze_ocr_log.py`
 
 Tested surfaces discussed in this pass:
 
@@ -24,7 +25,7 @@ Tested surfaces discussed in this pass:
 - Wikipedia / browser text
 - image / Photos
 
-Scrolling or other strong dynamic-content tests have not yet been completed in this evidence set.
+Scrolling and dynamic-content behavior has been exercised (scroll translation detection + incremental publishing are present in logs).
 
 ---
 
@@ -34,8 +35,10 @@ Current system baseline:
 
 - EasyOCR backend
 - client-area capture
-- full-window OCR safe mode
-- partial-region OCR path effectively disabled for correctness
+- hybrid OCR
+  - full-window OCR fallback
+  - merged-region incremental OCR
+  - scroll-translation incremental OCR (strip OCR)
 - no smoothing-based coordinate stabilization in the active trusted path
 - fuzzy search over OCR-derived index
 - optional semantic rerank
@@ -81,17 +84,19 @@ Interpretation:
 
 OCR is the main performance bottleneck.
 
-Observed ranges:
+Observed (from `analyze_ocr_log.py` over a recent slice of `uniseba.log`):
 
-- dense text-heavy surfaces: roughly `6345` to `6683 ms`
-- medium / lighter surfaces: roughly `2326` to `3111 ms`
-- sparse case seen: about `1835 ms`
+- full-window cycles (`full_window=1`): p50 OCR around `~9.1s`
+- incremental cycles (`full_window=0`): p50 OCR around `~4.3s`
+- best-case scroll-strip updates can reach sub-second total cycles when the newly revealed strip is small (examples in logs show `total_cycle_ms` under `~1s`)
 
 Interpretation:
 
 - the system is OCR-bound, not search-bound
 - stable screens feel usable because search on an existing OCR index is fast
 - dynamic screens will feel stale because OCR refresh takes seconds on dense content
+
+However, scroll can feel responsive when translation is detected and only a strip is OCR'd.
 
 ### Index build cost
 
@@ -479,4 +484,3 @@ So the next refinement phase should focus on:
 3. dynamic-content measurement
 
 That is the most disciplined path forward from the evidence we now have.
-

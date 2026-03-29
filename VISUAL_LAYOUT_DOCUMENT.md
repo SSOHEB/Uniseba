@@ -7,7 +7,7 @@ This document shows where the current runtime components sit relative to each ot
 It reflects the current codebase:
 
 - EasyOCR backend
-- full-window OCR safe mode
+- hybrid OCR (incremental + full-window fallback)
 - fuzzy-first search
 - overlay rendering from final coordinates
 
@@ -22,7 +22,7 @@ It reflects the current codebase:
 [Client-Area Capture]
            |
            v
-[Full-Window EasyOCR]
+[Incremental OCR or Full-Window EasyOCR]
            |
            v
 [OCR Index Normalization]
@@ -69,7 +69,7 @@ WORKER SIDE
 [threads/ocr_thread.py]
   -> select target
   -> capture client area
-  -> run full-window OCR
+  -> run incremental OCR where safe, otherwise full-window OCR
   -> build OCR index
   -> publish index_queue
 

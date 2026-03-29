@@ -27,9 +27,10 @@ Current baseline mode:
 
 - OCR backend: EasyOCR
 - capture area: client area only
-- OCR mode: full-window safe mode
-- partial-region OCR: currently bypassed
-- stabilization smoothing: currently bypassed
+- OCR mode: hybrid (full-window fallback + incremental OCR)
+- partial-region OCR: enabled (merged changed regions)
+- scroll-specialized OCR: enabled (translation estimate + strip OCR)
+- stabilization smoothing: bypassed (newest index wins)
 
 ---
 
@@ -58,13 +59,16 @@ Current baseline mode:
 
 Runtime flow:
 
-`target window -> client-area capture -> full-window OCR -> OCR index -> index_queue -> UI search -> overlay`
+`target window -> client-area capture -> (incremental OCR or full OCR) -> OCR index -> index_queue -> UI search -> overlay`
 
 More explicitly:
 
 1. `main.py` creates the UI, tray, queues, and worker threads.
 2. `threads/ocr_thread.py` selects a valid target window and captures its client area.
-3. The OCR thread uses EasyOCR on the full captured image.
+3. The OCR thread chooses between:
+   - scroll-translation update (shift prior index + OCR only the newly revealed strip), or
+   - incremental region OCR (OCR merged changed regions), or
+   - full-window OCR fallback.
 4. `ocr/index.py` filters and normalizes OCR results.
 5. The OCR thread publishes the index to the UI queue.
 6. `main.py` runs fuzzy search immediately.
@@ -93,7 +97,7 @@ Current `ocr/engine.py` behavior:
   - `w`
   - `h`
 - applies a real OCR confidence filter:
-  - reject if OCR confidence < `0.3`
+  - reject if OCR confidence < `0.15`
 - applies `window_rect` offset if absolute coordinates are needed
 
 ### Why This Matters
@@ -117,17 +121,18 @@ It currently owns:
 - target selection
 - client-area capture
 - change detection gating
-- full-window OCR execution
+- incremental OCR and full-window OCR fallback
 - queue publishing
 
 Important current behavior:
 
 - capture uses client area, not full decorated window bounds
-- OCR currently runs on the full captured image
-- `_build_full_index()` is active
+- OCR may run on full window or smaller regions depending on change/scroll detection
+- `_build_full_index()` remains the correctness fallback
 - `_stabilize_index()` currently returns `new_index` directly
 
-This “safe mode” became the known-good baseline after partial-region OCR and smoothing caused coordinate errors.
+Correctness note:
+Partial OCR must not downscale crops unless OCR coordinates are scaled back up. The current implementation avoids this by keeping region crops at native scale.
 
 ---
 
@@ -190,7 +195,7 @@ Current confirmed baseline:
 - CUDA-capable torch is installed and available
 - fuzzy search works
 - semantic thread exists
-- overlay alignment is good in safe mode
+- overlay alignment is good in the correctness fallback path (full-window OCR)
 - scrolling updates are working in the current baseline
 
 This baseline has already worked on:
@@ -231,7 +236,7 @@ The project still has:
 
 These should eventually be consolidated.
 
-### 3. Safe Mode Is Correct But Less Optimized
+### 3. Full-Window Fallback Is Correct But Less Optimized
 
 The current baseline is accurate and demo-friendly, but it is intentionally less optimized than the earlier partial-region design.
 
@@ -241,7 +246,7 @@ The current baseline is accurate and demo-friendly, but it is intentionally less
 
 The best short description of the project today is:
 
-Uniseba is a Windows OCR overlay app that currently uses client-area capture plus full-window EasyOCR to produce accurate searchable screen text and highlight matches in real time.
+Uniseba is a Windows OCR overlay app that uses client-area capture plus a hybrid OCR strategy (incremental when safe, full-window fallback when needed) to produce searchable screen text and highlight matches.
 
 ---
 

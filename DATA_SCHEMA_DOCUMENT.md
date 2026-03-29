@@ -7,7 +7,7 @@ This document records the current data shapes passed between the active runtime 
 It reflects the current codebase:
 
 - EasyOCR backend
-- full-window OCR safe mode
+- hybrid OCR (incremental + full-window fallback)
 
 ---
 
@@ -202,9 +202,6 @@ Metadata fields like `original`, `fuzzy_score`, and `final_score` may also be pr
 
 ## 10. Current Important Schema Fact
 
-Because safe mode is active, there is currently no trusted active schema for partial-region OCR mapping. The trusted active path is:
+Incremental OCR does not change the public schema.
 
-- full-window OCR words
-- normalized OCR index
-- queue to UI
-- overlay draw
+Whether the OCR thread used full-window OCR, merged-region OCR, or scroll-strip OCR, it still publishes the same normalized index entry shape to the UI.

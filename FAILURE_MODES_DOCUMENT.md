@@ -8,7 +8,7 @@ It reflects the current baseline:
 
 - EasyOCR backend
 - client-area capture
-- full-window safe mode
+- hybrid OCR (incremental + full-window fallback)
 
 ---
 
@@ -25,6 +25,7 @@ It reflects the current baseline:
 | Semantic rerank | Model unavailable | AI toggle has little visible effect | Partly | `search/semantic.py` |
 | Overlay draw | Rectangles missing or awkward | Search count changes but no visible highlights | Yes | `ui/overlay.py` |
 | Optimization path | Partial OCR/stabilization reintroduced badly | Offset, jitter, clipped words | Yes | `threads/ocr_thread.py` |
+| Scroll mode | Bad translation estimate | Ghost hits or boxes briefly drift during scroll | Yes | `threads/ocr_thread.py` |
 
 ---
 
@@ -89,10 +90,9 @@ That is why the current safe-mode baseline matters.
 
 The highest current risk is not the base OCR loop.
 
-It is reintroducing optimization layers too quickly:
+It is the incremental paths:
 
-- partial-region OCR
-- region cache reuse
-- stabilization smoothing
+- region OCR correctness (crop boundaries + coordinate integrity)
+- scroll translation correctness (dx/dy estimate confidence)
 
-Those are the parts most likely to turn the app inaccurate again.
+Those are the parts most likely to create "looks fast but wrong" behavior.

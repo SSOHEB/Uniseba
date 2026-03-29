@@ -20,9 +20,11 @@ Current trusted baseline:
 
 - EasyOCR backend
 - client-area capture
-- full-window OCR
-- no partial-region mapping
-- no stabilization smoothing
+- hybrid OCR:
+  - full-window OCR fallback
+  - incremental OCR on merged changed regions
+  - scroll-specialized OCR using translation + strip OCR
+- stabilization smoothing bypassed (newest index wins)
 
 ---
 
@@ -127,6 +129,13 @@ Partial-region OCR repeatedly caused:
 
 The optimization path was the problem, not the fundamental OCR/search loop.
 
+### Current state (after fixes)
+
+Incremental OCR is back, but with two guardrails:
+
+- region crops are kept at native scale (no silent downscale without coordinate compensation)
+- scroll can be handled via translation estimation + strip OCR, avoiding lots of large crops
+
 ---
 
 ## 5. Stabilization And Jitter
@@ -201,7 +210,7 @@ These points are the current truth:
 
 - `main.py` is the integrated app entry point
 - `ui/searchbar.py` is now a pure UI base class
-- `threads/ocr_thread.py` currently runs in safe-mode full-window OCR
+- `threads/ocr_thread.py` uses incremental OCR when safe, and falls back to full-window OCR
 - `ocr/engine.py` now uses EasyOCR, not WinRT
 - `config.py` is centralized and populated
 - structured logging is active across the runtime
@@ -216,7 +225,7 @@ These points are the current truth:
 - switching capture to client-area bounds
 - replacing WinRT OCR with EasyOCR
 - rejecting desktop shell windows explicitly
-- using safe-mode full-window OCR to isolate geometry
+- using full-window OCR as a correctness baseline to isolate geometry (historical lesson)
 
 ---
 
@@ -245,7 +254,12 @@ These can improve behavior, but they were not the primary breakthrough.
 
 ### 1. Optimization Debt
 
-The accurate baseline is currently less optimized because partial-region OCR is bypassed.
+The system is now using incremental OCR again, which improves scroll and minor-change responsiveness.
+
+The risk is correctness drift:
+
+- bad scroll translation estimates can create ghost hits or temporary misalignment
+- large merged regions can still be expensive (multi-second) if the screen is very dynamic
 
 ### 2. Dependency Maintenance
 
@@ -268,17 +282,14 @@ There are still two hybrid-style merge paths:
 
 ### Before further optimization
 
-- keep safe mode as the baseline
-- test it across multiple real windows
-- avoid changing geometry and search simultaneously
+- keep full-window OCR as the correctness fallback
+- validate scroll mode across multiple apps (browser, editor, PDF viewer)
+- avoid changing geometry + search heuristics in the same pass
 
-### Later, reintroduce optimizations carefully
+### Next optimization target (low-risk)
 
-1. stabilization only
-2. partial OCR only
-3. region cache only
-
-Each should be tested independently.
+- reduce how often we are forced into full-window OCR when incremental would be sufficient
+- add better metrics around how much area each incremental pass is OCRing (to explain slow "full_window=0" cycles)
 
 ---
 
@@ -288,6 +299,6 @@ The project is in a much healthier place now than before this debugging pass.
 
 The critical result is:
 
-the app is no longer “theoretically promising but unstable.”
+the app is no longer "theoretically promising but unstable."
 
 It now has a working, accurate, demo-ready baseline.

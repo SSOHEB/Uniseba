@@ -16,9 +16,10 @@ It describes:
 ## Current Truth
 
 - OCR backend: EasyOCR
-- OCR mode: full-window safe mode
+- OCR mode: hybrid (full-window fallback + incremental OCR)
 - capture origin: client area only
-- partial-region OCR: bypassed
+- partial-region OCR: enabled (merged changed regions)
+- scroll-specialized OCR: enabled (translation estimate + strip OCR)
 - stabilization smoothing: bypassed
 - search path: fuzzy first, optional semantic rerank
 - overlay path: draws final absolute coordinates directly
@@ -76,15 +77,15 @@ Current active responsibilities:
 - choose target window
 - capture client area
 - use change detection as a gating signal
-- run full-window OCR
+- run incremental OCR where safe, otherwise full-window OCR
 - build OCR index
 - publish index to UI
 
 Important current mode:
 
-- `_build_full_index()` is active
-- `_stabilize_index()` returns `new_index`
-- partial OCR code is not the trusted path right now
+- `_build_full_index()` remains the correctness fallback
+- incremental path is enabled (merged regions + scroll translation)
+- `_stabilize_index()` currently returns `new_index`
 
 ## `ocr/engine.py`
 
@@ -94,7 +95,7 @@ Current responsibilities:
 - use CUDA when available
 - run OCR synchronously
 - convert EasyOCR boxes into the project schema
-- reject OCR confidence below `0.3`
+- reject OCR confidence below `0.15`
 
 ## `ocr/index.py`
 
@@ -173,7 +174,7 @@ Current important values include:
 - `CHANGE_THRESHOLD = 2.5`
 - `OCR_UPDATE_DEBOUNCE_MS = 100`
 - `OCR_STABILITY_COUNT_THRESHOLD = 40`
-- `FORCED_OCR_INTERVAL_MS = 200`
+- `FORCED_OCR_INTERVAL_MS = 30000`
 
 These values are no longer scattered through `getattr(config, ...)` fallbacks.
 
@@ -205,7 +206,7 @@ Current trusted chain:
 4. OCR index stores those coordinates.
 5. Overlay draws them directly.
 
-This direct path is why the current safe mode aligns correctly.
+This direct path (full-window OCR with absolute coordinates) is why the correctness fallback aligns correctly.
 
 ---
 
@@ -219,7 +220,7 @@ The recent debugging session established that:
 
 The most important debugging outcome was:
 
-safe mode proved the system can work accurately before optimizations are reintroduced.
+Full-window fallback proved the system can work accurately before incremental optimizations were reintroduced.
 
 ---
 
@@ -227,7 +228,7 @@ safe mode proved the system can work accurately before optimizations are reintro
 
 ### 1. Optimization Debt
 
-The accurate baseline is not yet the optimized baseline.
+Incremental OCR is back, but correctness and fallback behavior must be continuously validated (especially scroll translation and region merging).
 
 ### 2. Search Merge Duplication
 

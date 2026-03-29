@@ -89,9 +89,12 @@ class OCRThread(threading.Thread):
                 if not self.has_found_valid_target:
                     self.has_found_valid_target = True
 
+                # Keep a handle to the previous frame for change detection / scroll estimation.
+                prev_image = self.current_image
+
                 change_started_at = time.perf_counter()
                 changed_regions = get_changed_regions(
-                    self.current_image,
+                    prev_image,
                     image,
                     grid=CHANGE_GRID,
                     threshold=CHANGE_THRESHOLD,
@@ -134,7 +137,6 @@ class OCRThread(threading.Thread):
                             "total_regions": total_regions,
                         }
                     )
-                self.current_image = image
                 if now - self.last_update_at < (OCR_UPDATE_DEBOUNCE_MS / 1000.0):
                     total_cycle_ms = (time.perf_counter() - cycle_started_at) * 1000.0
                     self.logger.debug(
@@ -143,18 +145,35 @@ class OCRThread(threading.Thread):
                         change_detection_ms,
                         total_cycle_ms,
                     )
+                    self.current_image = image
                     self.stop_event.wait(SCAN_INTERVAL_MS / 1000.0)
                     continue
 
                 full_window = True
-                if (
+                # Fast path for scroll: most of the image changes, but it's largely a translation.
+                # When we can estimate scroll delta reliably, we shift the existing index and
+                # OCR only the newly revealed strip (top or bottom).
+                if PARTIAL_OCR_ENABLED and self.last_stable_index and prev_image is not None:
+                    scroll_index = self._maybe_build_scroll_index(prev_image, image, rect, changed_regions)
+                    if scroll_index is not None:
+                        index, timing, full_window = scroll_index
+                    else:
+                        index = None
+                        timing = None
+                else:
+                    index = None
+                    timing = None
+
+                # Incremental OCR is our main path to "scroll sync". Do not block it just
+                # because a "forced refresh" timer expired; slow full-window OCR cycles
+                # can easily exceed that interval, which would otherwise disable partial OCR.
+                if index is None and (
                     PARTIAL_OCR_ENABLED
-                    and not force_refresh
                     and not self._is_major_change(changed_regions, total_regions)
                     and self.last_stable_index
                 ):
                     index, timing, full_window = self._build_incremental_index(image, rect, changed_regions)
-                else:
+                elif index is None:
                     index, timing = self._build_full_index(image, rect)
                     full_window = True
                 index = self._stabilize_index(index)
@@ -166,6 +185,7 @@ class OCRThread(threading.Thread):
                 self.last_stable_index = index
                 self.last_update_at = now
                 self.last_forced_ocr_at = now
+                self.current_image = image
                 total_cycle_ms = (time.perf_counter() - cycle_started_at) * 1000.0
                 self.logger.info(
                     "Published OCR index full_window=%s changed_regions=%s total_words=%s capture_ms=%.1f change_ms=%.1f ocr_ms=%.1f index_ms=%.1f total_cycle_ms=%.1f",
@@ -183,6 +203,158 @@ class OCRThread(threading.Thread):
                 self.logger.exception("OCR thread failed while updating the index.")
 
             self.stop_event.wait(SCAN_INTERVAL_MS / 1000.0)
+
+    def _maybe_build_scroll_index(self, prev_image, image, rect, changed_regions):
+        """Attempt a scroll-specialized incremental update.
+
+        Returns (index, timing, full_window=False) when scroll is detected reliably,
+        otherwise returns None and the caller falls back to generic incremental/full OCR.
+        """
+        # Only attempt when the frame looks like a big redraw (scroll, large repaint).
+        if len(changed_regions) < 8:
+            return None
+
+        estimate = self._estimate_translation(prev_image, image)
+        if estimate is None:
+            return None
+        dx, dy, response = estimate
+        # Phase correlation response is sensitive to sticky headers/sidebars.
+        # We'll accept a slightly lower threshold and rely on the dy check to avoid noise.
+        if response < 0.18:
+            return None
+        if abs(dx) > 25:
+            # Big horizontal motion is more likely a layout shift; skip scroll mode.
+            return None
+        if abs(dy) < 15:
+            return None
+
+        # Cap extreme deltas.
+        dy_int = int(max(-image.height + 1, min(image.height - 1, round(dy))))
+        dx_int = int(round(dx))
+        if dy_int == 0 and dx_int == 0:
+            return None
+
+        self.logger.debug("Detected scroll-like translation dx=%s dy=%s response=%.3f", dx_int, dy_int, response)
+        return self._build_scroll_index(image, rect, dx_int, dy_int)
+
+    def _estimate_translation(self, prev_image, image):
+        """Estimate dominant translation between two PIL images via phase correlation.
+
+        Returns (dx, dy, response) where response ~= [0..1] confidence.
+        """
+        try:
+            import cv2
+            import numpy as np
+        except Exception:
+            return None
+
+        # Downscale aggressively for speed.
+        target_w = 320
+        scale = target_w / float(max(1, image.width))
+        target_h = max(1, int(image.height * scale))
+        if target_h < 120:
+            target_h = 120
+
+        def _prep(img):
+            arr = np.array(img.convert("L"))
+            arr = cv2.resize(arr, (target_w, target_h), interpolation=cv2.INTER_AREA)
+            # Focus on the central content region to reduce the impact of sticky
+            # nav/sidebars and browser chrome.
+            y0 = int(target_h * 0.20)
+            y1 = int(target_h * 0.80)
+            x0 = int(target_w * 0.10)
+            x1 = int(target_w * 0.90)
+            arr = arr[y0:y1, x0:x1]
+            f = np.float32(arr)
+            # Windowing makes phase correlation more stable.
+            win = cv2.createHanningWindow((f.shape[1], f.shape[0]), cv2.CV_32F)
+            return f * win
+
+        try:
+            a = _prep(prev_image)
+            b = _prep(image)
+            (dx_s, dy_s), response = cv2.phaseCorrelate(a, b)
+            # Convert shift in the downscaled space back to original pixels.
+            dx = dx_s / max(1e-6, scale)
+            dy = dy_s / max(1e-6, scale)
+            return dx, dy, float(response)
+        except Exception:
+            return None
+
+    def _build_scroll_index(self, image, rect, dx, dy):
+        """Shift last stable index by (dx, dy) and OCR only the newly revealed strip."""
+        # Shift existing words.
+        shifted = []
+        left_bound = rect["left"]
+        top_bound = rect["top"]
+        right_bound = rect["left"] + image.width
+        bottom_bound = rect["top"] + image.height
+
+        for item in self.last_stable_index:
+            nx = int(item["x"] + dx)
+            ny = int(item["y"] + dy)
+            # Drop words that are now completely outside.
+            if nx + item["w"] <= left_bound or nx >= right_bound or ny + item["h"] <= top_bound or ny >= bottom_bound:
+                continue
+            new_item = dict(item)
+            new_item["x"] = nx
+            new_item["y"] = ny
+            shifted.append(new_item)
+
+        # Determine newly revealed strip region.
+        # If shifting previous image DOWN (dy>0), new content appears at TOP.
+        # If shifting previous image UP (dy<0), new content appears at BOTTOM.
+        strip_height = min(image.height, max(1, abs(dy)))
+        if dy > 0:
+            strip_top = 0
+            strip_bottom = strip_height
+        else:
+            strip_top = image.height - strip_height
+            strip_bottom = image.height
+
+        strip = image.crop((0, strip_top, image.width, strip_bottom))
+        ocr_started_at = time.perf_counter()
+        words = recognize_image(
+            strip,
+            {
+                "left": rect["left"],
+                "top": rect["top"] + strip_top,
+            },
+        )
+        new_entries = build_ocr_index(words)
+        new_entries = self._filter_excluded_index_items(new_entries)
+        ocr_ms = (time.perf_counter() - ocr_started_at) * 1000.0
+
+        index_started_at = time.perf_counter()
+        # Remove shifted entries that overlap the strip; replace with fresh OCR.
+        abs_strip = {
+            "left": rect["left"],
+            "top": rect["top"] + strip_top,
+            "right": rect["left"] + image.width,
+            "bottom": rect["top"] + strip_bottom,
+        }
+
+        def _overlaps_strip(item):
+            l = item["x"]
+            t = item["y"]
+            r = l + item["w"]
+            b = t + item["h"]
+            return not (r <= abs_strip["left"] or l >= abs_strip["right"] or b <= abs_strip["top"] or t >= abs_strip["bottom"])
+
+        merged = [it for it in shifted if not _overlaps_strip(it)]
+        merged.extend(new_entries)
+
+        seen = set()
+        deduped = []
+        for item in merged:
+            key = (item.get("x"), item.get("y"), item.get("w"), item.get("h"), item.get("original", ""))
+            if key in seen:
+                continue
+            seen.add(key)
+            deduped.append(item)
+
+        index_ms = (time.perf_counter() - index_started_at) * 1000.0
+        return deduped, {"ocr_ms": ocr_ms, "index_ms": index_ms}, False
 
     def _update_target_window(self):
         """Track the last foreground window that does not belong to Uniseba."""
@@ -432,7 +604,9 @@ class OCRThread(threading.Thread):
         new_entries = []
         for region in merged_regions:
             crop = image.crop((region["left"], region["top"], region["right"], region["bottom"]))
-            crop = self._prepare_region_image(crop)
+            # Important: do not downscale the crop unless we also compensate for the
+            # coordinate system. Downscaling here would make the OCR boxes too small
+            # and shift highlights.
             words = recognize_image(
                 crop,
                 {
@@ -498,14 +672,17 @@ class OCRThread(threading.Thread):
 
         rects.sort(key=lambda r: (r["left"], r["top"]))
         merged = []
+        # If regions are within this gap, treat them as "adjacent" and merge.
+        # This helps scroll/large redraws collapse into a few big OCR crops.
+        gap = max(0, int(PARTIAL_OCR_PADDING_PX))
         for r in rects:
             placed = False
             for target in merged:
                 if (
-                    r["right"] < target["left"]
-                    or r["left"] > target["right"]
-                    or r["bottom"] < target["top"]
-                    or r["top"] > target["bottom"]
+                    r["right"] < (target["left"] - gap)
+                    or r["left"] > (target["right"] + gap)
+                    or r["bottom"] < (target["top"] - gap)
+                    or r["top"] > (target["bottom"] + gap)
                 ):
                     continue
                 target["left"] = min(target["left"], r["left"])
@@ -544,11 +721,9 @@ class OCRThread(threading.Thread):
 
     def _prepare_region_image(self, image):
         """Slightly downscale OCR regions so partial passes stay lightweight."""
-        if OCR_DOWNSCALE >= 0.99:
-            return image
-        width = max(1, int(image.width * OCR_DOWNSCALE))
-        height = max(1, int(image.height * OCR_DOWNSCALE))
-        return image.resize((width, height), Image.Resampling.LANCZOS)
+        # NOTE: kept for backwards compatibility, but currently unused.
+        # If we re-enable downscaling, we must also scale OCR coordinates back up.
+        return image
 
     def _stabilize_index(self, new_index):
         """Temporary safe mode: trust the newest OCR frame without smoothing."""

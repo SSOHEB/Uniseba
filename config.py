@@ -80,8 +80,8 @@ OCR_DOWNSCALE = 0.75
 # and merge into the last stable index. This is the primary lever for fast scroll sync.
 PARTIAL_OCR_ENABLED = True
 PARTIAL_OCR_PADDING_PX = 12
-PARTIAL_OCR_MAX_RECTS = 4
-PARTIAL_OCR_MAX_AREA_RATIO = 0.55
+PARTIAL_OCR_MAX_RECTS = 6
+PARTIAL_OCR_MAX_AREA_RATIO = 0.85
 
 # Minimum time between published OCR updates, in milliseconds.
 OCR_UPDATE_DEBOUNCE_MS = 100
@@ -90,15 +90,16 @@ OCR_UPDATE_DEBOUNCE_MS = 100
 OCR_STABILITY_COUNT_THRESHOLD = 40
 
 # Force a refresh even when no region changed after this many milliseconds.
-# Keep this relatively large so we don't burn cycles re-OCRing identical screens.
-FORCED_OCR_INTERVAL_MS = 5000
+# This should be comfortably larger than a typical OCR cycle; otherwise slow OCR
+# will constantly trip "forced refresh" and can interfere with incremental mode.
+FORCED_OCR_INTERVAL_MS = 30000
 
 # Treat OCR as visibly refreshing only when the visible content changed dramatically.
 # This keeps the stale-result guard for true page/view swaps without making
 # judges wait through a "Refreshing visible text..." state on ordinary edits,
 # pane updates, or medium scroll movement.
-MAJOR_CHANGE_REGION_COUNT = 18
-MAJOR_CHANGE_REGION_RATIO = 0.50
+MAJOR_CHANGE_REGION_COUNT = 30
+MAJOR_CHANGE_REGION_RATIO = 0.80
 
 # Expand the floating search UI exclusion zone slightly so OCR misses border/shadow bleed.
 SEARCH_UI_EXCLUSION_PADDING = 24

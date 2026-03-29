@@ -519,13 +519,52 @@ class IntegratedSearchbarApp(SearchbarApp):
 
 
 def configure_logging():
-    """Send OCR and integration errors to uniseba.log."""
-    logging.basicConfig(
-        filename="uniseba.log",
-        level=logging.DEBUG,
-        format="%(asctime)s %(levelname)s [%(threadName)s] %(name)s: %(message)s",
-        force=True,
+    """Configure file logging.
+
+    We keep logs on disk for debugging, but we must not let a single error loop
+    create multi-GB logs (which also makes performance investigation painful).
+    """
+    import os
+    from logging.handlers import RotatingFileHandler
+
+    log_format = "%(asctime)s %(levelname)s [%(threadName)s] %(name)s: %(message)s"
+    formatter = logging.Formatter(log_format)
+
+    root = logging.getLogger()
+    root.setLevel(logging.DEBUG)
+
+    # Replace any existing handlers (basicConfig(force=True) equivalent).
+    for handler in list(root.handlers):
+        root.removeHandler(handler)
+
+    log_dir = os.path.abspath(".")
+    os.makedirs(log_dir, exist_ok=True)
+
+    # Main rolling log.
+    main_handler = RotatingFileHandler(
+        os.path.join(log_dir, "uniseba.log"),
+        maxBytes=8_000_000,
+        backupCount=3,
+        encoding="utf-8",
     )
+    main_handler.setLevel(logging.DEBUG)
+    main_handler.setFormatter(formatter)
+    root.addHandler(main_handler)
+
+    # Separate rolling error log for quick triage.
+    error_handler = RotatingFileHandler(
+        os.path.join(log_dir, "uniseba_errors.log"),
+        maxBytes=3_000_000,
+        backupCount=2,
+        encoding="utf-8",
+    )
+    error_handler.setLevel(logging.WARNING)
+    error_handler.setFormatter(formatter)
+    root.addHandler(error_handler)
+
+    # Keep noisy third-party libs from drowning our timings.
+    logging.getLogger("PIL").setLevel(logging.WARNING)
+    logging.getLogger("easyocr").setLevel(logging.WARNING)
 
 
 def main():
