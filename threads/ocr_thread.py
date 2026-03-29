@@ -579,9 +579,21 @@ class OCRThread(threading.Thread):
         return (changed_count / float(total_regions)) >= MAJOR_CHANGE_REGION_RATIO
 
     def _build_full_index(self, image, rect):
-        """Run OCR on the full captured window so geometry can be validated end to end."""
+        DOWNSCALE = 0.75
         ocr_started_at = time.perf_counter()
-        words = recognize_image(image, rect)
+        
+        scaled_w = max(1, int(image.width * DOWNSCALE))
+        scaled_h = max(1, int(image.height * DOWNSCALE))
+        scaled_image = image.resize((scaled_w, scaled_h), Image.LANCZOS)
+        
+        words = recognize_image(scaled_image, None)
+        
+        for word in words:
+            word["x"] = int(round(word["x"] / DOWNSCALE)) + rect["left"]
+            word["y"] = int(round(word["y"] / DOWNSCALE)) + rect["top"]
+            word["w"] = int(round(word["w"] / DOWNSCALE))
+            word["h"] = int(round(word["h"] / DOWNSCALE))
+        
         ocr_ms = (time.perf_counter() - ocr_started_at) * 1000.0
         index_started_at = time.perf_counter()
         index = build_ocr_index(words)
