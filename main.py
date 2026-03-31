@@ -71,7 +71,8 @@ class IntegratedSearchbarApp(SearchbarApp):
         super().__init__()
         self.summary_panel = SummaryPanel(self)
         self._is_recording = False
-        self._corpus = set()
+        self._corpus = []
+        self._corpus_seen = set()
         self.bind("<Escape>", lambda _event: self.hide_overlay())
         self.index_poll_job = self.after(POLL_MS, self._poll_index_queue)
         self.search_poll_job = self.after(POLL_MS, self._poll_semantic_results)
@@ -144,7 +145,8 @@ class IntegratedSearchbarApp(SearchbarApp):
     def _on_record_clicked(self):
         if not self._is_recording:
             self._is_recording = True
-            self._corpus = set()
+            self._corpus = []
+            self._corpus_seen = set()
             self.record_btn.configure(
                 text="⏹ Stop",
                 bg="#27ae60",
@@ -172,7 +174,7 @@ class IntegratedSearchbarApp(SearchbarApp):
                 "Nothing recorded yet. Click Record, scroll through content, then click Stop."
             )
             return
-        text = " ".join(sorted(self._corpus))
+        text = " ".join(self._corpus)
         self.summary_panel.show_loading()
         import threading
         threading.Thread(
@@ -480,13 +482,14 @@ class IntegratedSearchbarApp(SearchbarApp):
         if self._is_recording and self.current_index:
             before = len(self._corpus)
             for item in self.current_index:
-                word = item.get("original", "").strip()
-                if word:
-                    self._corpus.add(word)
+                phrase = item.get("original", "").strip()
+                if phrase and phrase not in self._corpus_seen:
+                    self._corpus.append(phrase)
+                    self._corpus_seen.add(phrase)
             after = len(self._corpus)
             if after != before:
                 self.result_label.configure(
-                    text=f"⏺ Capturing... {after} words"
+                    text=f"⏺ Capturing... {after} phrases"
                 )
         if updated is not None and self.visible and len(self.entry.get().strip()) >= MIN_QUERY_LENGTH:
             self._apply_search()
