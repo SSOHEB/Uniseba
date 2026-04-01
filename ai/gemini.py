@@ -46,21 +46,35 @@ Text:
 def build_knowledge_graph(text, target_word):
     try:
         client = _get_client().with_options(timeout=25)
-        trimmed_text = (text or "")[:4000]
-        focus = (target_word or "").strip()
-        prompt = f"""Extract a knowledge graph centered on "{focus}" from the text below.
+        words = str(text or "").split()
+        filtered_words = []
+        for word in words:
+            token = word.strip(".,;:!?()[]{}\"'")
+            if len(token) <= 4 and token.isupper():
+                continue
+            filtered_words.append(word)
+        cleaned_text = " ".join(filtered_words)
+        prompt = f"""You are a knowledge graph builder analyzing a study or learning document.
 
-Requirements:
-- Create 8 to 15 nodes representing key concepts, people, places, events, or ideas from the text.
-- One node must be "{focus}" as the central node.
-- Create edges between nodes with short relationship labels (2 to 4 words max).
-- Only include relationships clearly supported by the text.
+Extract a knowledge graph from the text below.
+
+Rules:
+- Create 10 to 15 nodes representing key concepts, skills, topics or ideas.
+- Automatically identify the most important concept as the central node.
+- Create meaningful edges between related nodes.
+- Each edge label must be specific and descriptive: use labels like
+  "builds on", "required for", "teaches", "leads to", "includes",
+  "depends on", "stronger than", "used in", "part of mastering".
+- Never use the same edge label more than twice across all edges.
+- Never use generic labels like "part of" or "related to" alone.
+- The central node must be a meaningful topic or skill, never a
+  status word or common short word.
 - Return ONLY valid JSON with no explanation, no markdown, no backticks.
 - JSON format must be exactly:
-{{"nodes": [{{"id": "1", "label": "..."}}], "edges": [{{"from": "1", "to": "2", "label": "..."}}]}}
+  {{"center": "central node label", "nodes": [{{"id": "1", "label": "..."}}], "edges": [{{"from": "1", "to": "2", "label": "..."}}]}}
 
 Text:
-{trimmed_text}"""
+{cleaned_text[:6000]}"""
         response = client.chat.completions.create(
             model="llama-3.3-70b-versatile",
             messages=[
