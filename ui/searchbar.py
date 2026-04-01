@@ -1,7 +1,6 @@
-"""Floating search bar UI base for the integrated overlay application."""
+﻿"""Floating search bar UI base for the integrated overlay application."""
 
 import customtkinter as ctk
-import tkinter as tk
 
 from config import DEBOUNCE_MS
 from ui.overlay import OverlayWindow
@@ -27,56 +26,97 @@ class SearchbarApp(ctk.CTk):
         self.withdraw()
 
     def _build_ui(self):
-        """Create the entry, result counter, and AI toggle."""
+        """Create the redesigned dark UI with sharp, high-contrast controls."""
         ctk.set_appearance_mode("dark")
+        self.configure(fg_color="#0d1117")
         self.grid_columnconfigure(0, weight=1)
 
-        self.entry = ctk.CTkEntry(self, placeholder_text="Search visible text...")
+        self.entry = ctk.CTkEntry(
+            self,
+            placeholder_text="Search visible text...",
+            fg_color="#161b22",
+            border_color="#30363d",
+            text_color="#e6edf3",
+            placeholder_text_color="#484f58",
+            font=("Courier New", 13),
+            height=42,
+            corner_radius=8,
+            border_width=1,
+        )
         self.entry.grid(row=0, column=0, padx=12, pady=(12, 8), sticky="ew")
         self.entry.bind("<KeyRelease>", self._on_query_changed)
 
-        self.result_label = ctk.CTkLabel(self, text="0 matches")
+        self.result_label = ctk.CTkLabel(
+            self,
+            text="0 matches",
+            text_color="#8b949e",
+            font=("Segoe UI", 10),
+            fg_color="transparent",
+        )
         self.result_label.grid(row=1, column=0, padx=12, sticky="w")
 
         button_frame = ctk.CTkFrame(self, fg_color="transparent")
         button_frame.grid(row=1, column=0, padx=12, pady=(0, 12), sticky="e")
 
         self.ai_var = ctk.BooleanVar(value=True)
-        self.ai_toggle = ctk.CTkSwitch(button_frame, text="AI", variable=self.ai_var)
+        self.ai_toggle = ctk.CTkSwitch(
+            button_frame,
+            text="AI",
+            variable=self.ai_var,
+            text_color="#8b949e",
+            button_color="#00d4ff",
+            button_hover_color="#00b8d9",
+            progress_color="#00d4ff",
+        )
         self.ai_toggle.pack(side="left")
 
-        self.record_btn = tk.Button(
+        self.record_btn = ctk.CTkButton(
             button_frame,
             text="⏺ Record",
-            bg="#c0392b",
-            fg="#ffffff",
-            font=("Segoe UI", 9),
-            relief=tk.FLAT,
+            fg_color="#1a1f29",
+            hover_color="#2d1f1f",
+            text_color="#f59e0b",
+            border_color="#f59e0b",
+            border_width=1,
+            corner_radius=6,
+            font=("Segoe UI", 9, "bold"),
+            width=80,
+            height=28,
             command=self._on_record_clicked,
         )
-        self.record_btn.pack(side=tk.LEFT, padx=(4, 0))
+        self.record_btn.pack(side="left", padx=(4, 0))
 
-        self.summarize_btn = tk.Button(
+        self.summarize_btn = ctk.CTkButton(
             button_frame,
             text="Summarize",
-            bg="#3a3a3a",
-            fg="#ffffff",
+            fg_color="#1a1f29",
+            hover_color="#1a2632",
+            text_color="#8b949e",
+            border_color="#30363d",
+            border_width=1,
+            corner_radius=6,
             font=("Segoe UI", 9),
-            relief=tk.FLAT,
+            width=80,
+            height=28,
             command=self._on_summarize_clicked,
         )
-        self.summarize_btn.pack(side=tk.LEFT, padx=(4, 0))
+        self.summarize_btn.pack(side="left", padx=(4, 0))
 
-        self.graph_btn = tk.Button(
+        self.graph_btn = ctk.CTkButton(
             button_frame,
-            text="🔗 Graph",
-            bg="#1a6b8a",
-            fg="#ffffff",
-            font=("Segoe UI", 9),
-            relief=tk.FLAT,
+            text="⬡ Graph",
+            fg_color="#1a1f29",
+            hover_color="#1a2632",
+            text_color="#00d4ff",
+            border_color="#00d4ff",
+            border_width=1,
+            corner_radius=6,
+            font=("Segoe UI", 9, "bold"),
+            width=70,
+            height=28,
             command=self._on_graph_clicked,
         )
-        self.graph_btn.pack(side=tk.LEFT, padx=(4, 0))
+        self.graph_btn.pack(side="left", padx=(4, 0))
 
     def _on_record_clicked(self):
         pass

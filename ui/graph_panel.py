@@ -26,7 +26,9 @@ def _build_graph_html(graph_data, title):
       width: 100%;
       height: 100%;
       overflow: hidden;
-      background: #0f1117;
+      background: #0d1117;
+      background-image: linear-gradient(#21262d 1px, transparent 1px), linear-gradient(90deg, #21262d 1px, transparent 1px);
+      background-size: 40px 40px;
       font-family: \"Segoe UI\", sans-serif;
     }}
     #graph {{
@@ -38,12 +40,13 @@ def _build_graph_html(graph_data, title):
       top: 14px;
       left: 50%;
       transform: translateX(-50%);
-      color: #ffffff;
-      background: rgba(255, 255, 255, 0.08);
-      border: 1px solid rgba(255, 255, 255, 0.18);
+      color: #00d4ff;
+      background: rgba(0, 212, 255, 0.1);
+      border: 1px solid rgba(0, 212, 255, 0.3);
       border-radius: 999px;
       padding: 8px 16px;
       font-size: 14px;
+      letter-spacing: 0.05em;
       z-index: 10;
       backdrop-filter: blur(4px);
       pointer-events: none;
@@ -52,9 +55,9 @@ def _build_graph_html(graph_data, title):
       position: fixed;
       top: 14px;
       right: 14px;
-      color: #ffffff;
-      background: rgba(230, 81, 0, 0.9);
-      border: 0;
+      color: #8b949e;
+      background: #161b22;
+      border: 1px solid #30363d;
       border-radius: 8px;
       padding: 8px 12px;
       font-size: 13px;
@@ -80,26 +83,33 @@ def _build_graph_html(graph_data, title):
       nodes: {{
         shape: \"dot\",
         size: 22,
-        shadow: true,
-        font: {{ color: \"#ffffff\" }},
+        shadow: {{
+          enabled: true,
+          color: \"rgba(0,212,255,0.3)\",
+        }},
+        font: {{ color: \"#e6edf3\" }},
         color: {{
-          background: \"#1a6b8a\",
-          border: \"#4fc3f7\"
+          background: \"#1a2332\",
+          border: \"#00d4ff\",
+          highlight: {{
+            background: \"#0d2137\",
+            border: \"#00d4ff\",
+          }}
         }}
       }},
       edges: {{
         arrows: {{ to: {{ enabled: true }} }},
         smooth: {{ type: \"dynamic\" }},
         shadow: true,
-        width: 2,
-        color: {{ color: \"#8a8f9a\" }},
-        font: {{ color: \"#b0b5c0\", size: 11 }}
+        width: 1.5,
+        color: {{ color: \"#21262d\", highlight: \"#00d4ff\" }},
+        font: {{ color: \"#484f58\", size: 11 }}
       }},
       physics: {{
         barnesHut: {{
-          gravitationalConstant: -8000,
+          gravitationalConstant: -12000,
           centralGravity: 0.3,
-          springLength: 160
+          springLength: 200
         }},
         stabilization: {{
           iterations: 200
@@ -121,13 +131,13 @@ def _build_graph_html(graph_data, title):
       if (match) {{
         nodes.update({{
           id: match.id,
-          size: 35,
+          size: 38,
           color: {{
-            background: \"#e65100\",
-            border: \"#ff8a65\"
+            background: \"#2d1a00\",
+            border: \"#f59e0b\"
           }},
           font: {{
-            color: \"#ffffff\",
+            color: \"#f59e0b\",
             bold: true
           }}
         }});

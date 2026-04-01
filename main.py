@@ -156,14 +156,18 @@ class IntegratedSearchbarApp(SearchbarApp):
             self._last_corpus_size = 0
             self.record_btn.configure(
                 text="⏹ Stop",
-                bg="#27ae60",
+                fg_color="#2d1f1f",
+                text_color="#ef4444",
+                border_color="#ef4444",
             )
             logger.info("Corpus recording started")
         else:
             self._is_recording = False
             self.record_btn.configure(
                 text="⏺ Record",
-                bg="#c0392b",
+                fg_color="#1a1f29",
+                text_color="#f59e0b",
+                border_color="#f59e0b",
             )
             logger.info(
                 "Corpus recording stopped corpus_size=%s",
