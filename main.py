@@ -76,6 +76,8 @@ class IntegratedSearchbarApp(SearchbarApp):
         self._is_recording = False
         self._corpus = []
         self._corpus_seen = set()
+        self._stable_poll_count = 0
+        self._last_corpus_size = 0
         self.bind("<Escape>", lambda _event: self.hide_overlay())
         self.index_poll_job = self.after(POLL_MS, self._poll_index_queue)
         self.search_poll_job = self.after(POLL_MS, self._poll_semantic_results)
@@ -550,7 +552,17 @@ class IntegratedSearchbarApp(SearchbarApp):
                     self._corpus.append(phrase)
                     self._corpus_seen.add(phrase)
             after = len(self._corpus)
-            if after != before:
+            if after == self._last_corpus_size:
+                self._stable_poll_count += 1
+            else:
+                self._stable_poll_count = 0
+                self._last_corpus_size = after
+
+            if self._stable_poll_count >= 3:
+                self.result_label.configure(
+                    text=f"✅ Captured — scroll now ({after} phrases)"
+                )
+            elif self._stable_poll_count < 3 and after != before:
                 self.result_label.configure(
                     text=f"⏺ Capturing... {after} phrases"
                 )
