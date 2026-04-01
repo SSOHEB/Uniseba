@@ -67,10 +67,24 @@ class SearchbarApp(ctk.CTk):
         )
         self.summarize_btn.pack(side=tk.LEFT, padx=(4, 0))
 
+        self.graph_btn = tk.Button(
+            button_frame,
+            text="🔗 Graph",
+            bg="#1a6b8a",
+            fg="#ffffff",
+            font=("Segoe UI", 9),
+            relief=tk.FLAT,
+            command=self._on_graph_clicked,
+        )
+        self.graph_btn.pack(side=tk.LEFT, padx=(4, 0))
+
     def _on_record_clicked(self):
         pass
 
     def _on_summarize_clicked(self):
+        pass
+
+    def _on_graph_clicked(self):
         pass
 
     def toggle_visibility(self):

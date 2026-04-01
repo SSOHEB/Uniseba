@@ -1,4 +1,5 @@
 import os
+import json
 from dotenv import load_dotenv
 from groq import Groq
 
@@ -41,3 +42,36 @@ Text:
     except Exception as e:
         return f"Summary failed: {str(e)}"
 
+
+def build_knowledge_graph(text, target_word):
+    try:
+        client = _get_client()
+        trimmed_text = (text or "")[:4000]
+        focus = (target_word or "").strip()
+        prompt = f"""Extract a knowledge graph centered on "{focus}" from the text below.
+
+Requirements:
+- Create 8 to 15 nodes representing key concepts, people, places, events, or ideas from the text.
+- One node must be "{focus}" as the central node.
+- Create edges between nodes with short relationship labels (2 to 4 words max).
+- Only include relationships clearly supported by the text.
+- Return ONLY valid JSON with no explanation, no markdown, no backticks.
+- JSON format must be exactly:
+{{"nodes": [{{"id": "1", "label": "..."}}], "edges": [{{"from": "1", "to": "2", "label": "..."}}]}}
+
+Text:
+{trimmed_text}"""
+        response = client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[
+                {
+                    "role": "user",
+                    "content": prompt,
+                }
+            ],
+            temperature=0.2,
+        )
+        content = response.choices[0].message.content.strip()
+        return json.loads(content)
+    except Exception as e:
+        return f"Graph failed: {str(e)}"

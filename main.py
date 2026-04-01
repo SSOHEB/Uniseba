@@ -12,7 +12,7 @@ ctypes.windll.user32.SetProcessDPIAware()
 import keyboard
 import win32gui
 
-from ai.gemini import summarize_screen_text
+from ai.gemini import build_knowledge_graph, summarize_screen_text
 from config import (
     BLOCKED_CONSOLE_KEYWORDS,
     BLOCKED_WINDOW_PREFIXES,
@@ -32,6 +32,7 @@ from search.fuzzy import fuzzy_search
 from threads.ocr_thread import OCRThread
 from threads.search_thread import SearchThread
 from ui.searchbar import SearchbarApp
+from ui.graph_panel import open_graph
 from ui.summary_panel import SummaryPanel
 from ui.tray import TrayController
 
@@ -186,6 +187,38 @@ class IntegratedSearchbarApp(SearchbarApp):
     def _run_summarize(self, text):
         summary = summarize_screen_text(text)
         self.after(0, lambda: self.summary_panel.show_summary(summary))
+
+    def _on_graph_clicked(self):
+        if self._is_recording:
+            self.summary_panel.show_summary(
+                "Please click Stop before generating graph."
+            )
+            return
+        if not self._corpus:
+            self.summary_panel.show_summary(
+                "Nothing recorded yet. Click Record, scroll through content, then click Stop."
+            )
+            return
+        query = self.entry.get().strip()
+        if not query:
+            self.summary_panel.show_summary(
+                "Type a word in the search bar first."
+            )
+            return
+        text = " ".join(self._corpus)
+        self.summary_panel.show_loading()
+        threading.Thread(
+            target=self._run_graph,
+            args=(text, query),
+            daemon=True,
+        ).start()
+
+    def _run_graph(self, text, query):
+        graph = build_knowledge_graph(text, query)
+        if isinstance(graph, str):
+            self.after(0, lambda: self.summary_panel.show_summary(graph))
+            return
+        self.after(0, lambda: open_graph(graph, query))
 
     def _set_matches(self, matches):
         """Redraw only when the overlay input actually changed."""
