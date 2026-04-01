@@ -1,5 +1,4 @@
 import tkinter as tk
-from tkinter import ttk
 
 
 class SummaryPanel(tk.Toplevel):
@@ -62,4 +61,3 @@ class SummaryPanel(tk.Toplevel):
         self.text_widget.delete("1.0", tk.END)
         self.text_widget.insert(tk.END, text)
         self.text_widget.configure(state=tk.DISABLED)
-

@@ -152,6 +152,8 @@ class IntegratedSearchbarApp(SearchbarApp):
             self._is_recording = True
             self._corpus = []
             self._corpus_seen = set()
+            self._stable_poll_count = 0
+            self._last_corpus_size = 0
             self.record_btn.configure(
                 text="⏹ Stop",
                 bg="#27ae60",
@@ -181,7 +183,6 @@ class IntegratedSearchbarApp(SearchbarApp):
             return
         text = " ".join(self._corpus)
         self.summary_panel.show_loading()
-        import threading
         threading.Thread(
             target=self._run_summarize,
             args=(text,),
@@ -245,7 +246,7 @@ class IntegratedSearchbarApp(SearchbarApp):
         return "Main Topic"
 
     def _run_graph(self, text, focus):
-        graph = build_knowledge_graph(text, focus)
+        graph = build_knowledge_graph(text)
         if isinstance(graph, str):
             self.after(0, lambda: self.summary_panel.show_summary(graph))
             return
@@ -643,6 +644,8 @@ class IntegratedSearchbarApp(SearchbarApp):
             handles.add(self.winfo_id())
         if self.overlay.exists():
             handles.add(self.overlay.window.winfo_id())
+        if hasattr(self, "summary_panel") and self.summary_panel.winfo_exists():
+            handles.add(self.summary_panel.winfo_id())
         return handles
 
     def shutdown(self):

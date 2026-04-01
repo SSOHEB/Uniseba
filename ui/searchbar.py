@@ -13,7 +13,7 @@ class SearchbarApp(ctk.CTk):
     def __init__(self):
         super().__init__()
         self.title("Uniseba Search")
-        self.geometry("420x110+80+80")
+        self.geometry("620x140+80+80")
         self.attributes("-topmost", True)
         self.resizable(False, False)
 

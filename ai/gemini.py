@@ -43,7 +43,7 @@ Text:
         return f"Summary failed: {str(e)}"
 
 
-def build_knowledge_graph(text, target_word):
+def build_knowledge_graph(text):
     try:
         client = _get_client().with_options(timeout=25)
         words = str(text or "").split()
