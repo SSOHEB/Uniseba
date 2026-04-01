@@ -1,10 +1,12 @@
 """Application entry point for the integrated Uniseba desktop flow."""
 
 import ctypes
+import re
 import logging
 import queue
 import threading
 import time
+from collections import Counter
 
 # Set DPI awareness before UI modules create any windows.
 ctypes.windll.user32.SetProcessDPIAware()
@@ -199,26 +201,54 @@ class IntegratedSearchbarApp(SearchbarApp):
                 "Nothing recorded yet. Click Record, scroll through content, then click Stop."
             )
             return
-        query = self.entry.get().strip()
-        if not query:
-            self.summary_panel.show_summary(
-                "Type a word in the search bar first."
-            )
-            return
+        focus = self._infer_graph_focus()
         text = " ".join(self._corpus)
-        self.summary_panel.show_loading()
+        open_graph(
+            {
+                "nodes": [
+                    {"id": "1", "label": focus},
+                    {"id": "2", "label": "Generating graph..."},
+                ],
+                "edges": [
+                    {"from": "1", "to": "2", "label": "building now"},
+                ],
+            },
+            focus,
+        )
+        self.summary_panel.show_summary("Generating graph...")
         threading.Thread(
             target=self._run_graph,
-            args=(text, query),
+            args=(text, focus),
             daemon=True,
         ).start()
 
-    def _run_graph(self, text, query):
-        graph = build_knowledge_graph(text, query)
+    def _infer_graph_focus(self):
+        tokens = Counter()
+        stopwords = {
+            "the", "and", "for", "with", "that", "this", "from", "have", "has", "are", "was", "were",
+            "but", "not", "you", "your", "into", "about", "their", "they", "them", "then", "than",
+            "where", "when", "what", "which", "while", "will", "would", "could", "should",
+        }
+        for phrase in self._corpus:
+            for token in re.findall(r"[A-Za-z0-9][A-Za-z0-9'-]*", phrase.lower()):
+                if len(token) < 3 or token in stopwords:
+                    continue
+                tokens[token] += 1
+        if tokens:
+            return tokens.most_common(1)[0][0]
+        for phrase in self._corpus:
+            parts = phrase.strip().split()
+            if parts:
+                return parts[0]
+        return "Main Topic"
+
+    def _run_graph(self, text, focus):
+        graph = build_knowledge_graph(text, focus)
         if isinstance(graph, str):
             self.after(0, lambda: self.summary_panel.show_summary(graph))
             return
-        self.after(0, lambda: open_graph(graph, query))
+        self.after(0, lambda: open_graph(graph, focus))
+        self.after(0, lambda: self.summary_panel.show_summary("Graph generated."))
 
     def _set_matches(self, matches):
         """Redraw only when the overlay input actually changed."""

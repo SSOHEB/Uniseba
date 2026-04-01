@@ -45,7 +45,7 @@ Text:
 
 def build_knowledge_graph(text, target_word):
     try:
-        client = _get_client()
+        client = _get_client().with_options(timeout=25)
         trimmed_text = (text or "")[:4000]
         focus = (target_word or "").strip()
         prompt = f"""Extract a knowledge graph centered on "{focus}" from the text below.
