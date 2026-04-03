@@ -4,6 +4,7 @@ import logging
 import threading
 from queue import Empty, Queue
 
+from runtime.messages import SemanticRequest, SemanticResult
 from search.semantic import semantic_search
 
 
@@ -27,9 +28,21 @@ class SearchThread(threading.Thread):
 
             if request is None:
                 continue
+            parsed_request = SemanticRequest.from_obj(request)
+            if parsed_request is None:
+                continue
 
             try:
-                results = semantic_search(request["query"], request["index"], limit=request["limit"])
-                self.result_queue.put({"token": request["token"], "results": results})
+                results = semantic_search(
+                    parsed_request.query,
+                    parsed_request.index,
+                    limit=parsed_request.limit,
+                )
+                self.result_queue.put(
+                    SemanticResult(
+                        token=parsed_request.token,
+                        results=results,
+                    ).to_dict()
+                )
             except Exception:
                 self.logger.exception("Semantic search thread failed.")

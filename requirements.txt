@@ -1,7 +1,11 @@
 --extra-index-url https://download.pytorch.org/whl/cu121
 
+# Core runtime
 mss==9.0.1
 easyocr==1.7.2
+groq==0.26.0
+python-dotenv==1.1.1
+pywebview==5.4
 rapidfuzz==3.6.1
 sentence-transformers==2.7.0
 numpy==1.26.4
@@ -11,8 +15,8 @@ customtkinter==5.2.2
 keyboard==0.13.5
 pywin32==306
 pystray==0.19.5
-psutil==5.9.8
+
+# ML stack (kept explicit for CUDA 12.1 compatibility)
 torch==2.2.2+cu121
 torchvision==0.17.2+cu121
 transformers==4.40.1
-nuitka==4.0.5

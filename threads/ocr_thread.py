@@ -1,4 +1,4 @@
-"""Background OCR worker for continuously updating the visible text index."""
+﻿"""Background OCR worker for continuously updating the visible text index."""
 
 import logging
 import threading
@@ -38,6 +38,7 @@ from config import (
 )
 from ocr.engine import recognize_image
 from ocr.index import build_ocr_index
+from runtime.messages import OCRIndexUpdate, OCRRefreshing
 
 logger = logging.getLogger("uniseba.ocr.thread")
 
@@ -131,11 +132,10 @@ class OCRThread(threading.Thread):
                     )
                 if self._is_major_change(changed_regions, total_regions):
                     self.index_queue.put(
-                        {
-                            "type": "refreshing",
-                            "changed_regions": len(changed_regions),
-                            "total_regions": total_regions,
-                        }
+                        OCRRefreshing(
+                            changed_regions=len(changed_regions),
+                            total_regions=total_regions,
+                        ).to_dict()
                     )
                 if now - self.last_update_at < (OCR_UPDATE_DEBOUNCE_MS / 1000.0):
                     total_cycle_ms = (time.perf_counter() - cycle_started_at) * 1000.0
@@ -198,7 +198,7 @@ class OCRThread(threading.Thread):
                     timing["index_ms"],
                     total_cycle_ms,
                 )
-                self.index_queue.put({"type": "index", "index": index})
+                self.index_queue.put(OCRIndexUpdate(index=index).to_dict())
             except Exception:
                 self.logger.exception("OCR thread failed while updating the index.")
 
@@ -397,7 +397,6 @@ class OCRThread(threading.Thread):
                 "Rejected bootstrap target hwnd=%s class=%r because it is a desktop shell window",
                 hwnd,
                 class_name,
-                título=class_name,
             )
             return False
         raw_title = win32gui.GetWindowText(hwnd).strip()
@@ -579,7 +578,7 @@ class OCRThread(threading.Thread):
         return (changed_count / float(total_regions)) >= MAJOR_CHANGE_REGION_RATIO
 
     def _build_full_index(self, image, rect):
-        DOWNSCALE = 0.75
+        DOWNSCALE = OCR_DOWNSCALE
         ocr_started_at = time.perf_counter()
         
         scaled_w = max(1, int(image.width * DOWNSCALE))

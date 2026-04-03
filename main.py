@@ -1,12 +1,10 @@
 """Application entry point for the integrated Uniseba desktop flow."""
 
 import ctypes
-import re
 import logging
 import queue
 import threading
 import time
-from collections import Counter
 
 # Set DPI awareness before UI modules create any windows.
 ctypes.windll.user32.SetProcessDPIAware()
@@ -31,6 +29,14 @@ from config import (
     SELF_UI_PHRASES,
 )
 from search.fuzzy import fuzzy_search
+from runtime.messages import (
+    OCRIndexUpdate,
+    OCRRefreshing,
+    SemanticRequest,
+    SemanticResult,
+    parse_ocr_message,
+)
+from services.corpus_recorder import CorpusRecorder
 from threads.ocr_thread import OCRThread
 from threads.search_thread import SearchThread
 from ui.searchbar import SearchbarApp
@@ -74,10 +80,7 @@ class IntegratedSearchbarApp(SearchbarApp):
         super().__init__()
         self.summary_panel = SummaryPanel(self)
         self._is_recording = False
-        self._corpus = []
-        self._corpus_seen = set()
-        self._stable_poll_count = 0
-        self._last_corpus_size = 0
+        self._corpus_state = CorpusRecorder()
         self.bind("<Escape>", lambda _event: self.hide_overlay())
         self.index_poll_job = self.after(POLL_MS, self._poll_index_queue)
         self.search_poll_job = self.after(POLL_MS, self._poll_semantic_results)
@@ -150,10 +153,7 @@ class IntegratedSearchbarApp(SearchbarApp):
     def _on_record_clicked(self):
         if not self._is_recording:
             self._is_recording = True
-            self._corpus = []
-            self._corpus_seen = set()
-            self._stable_poll_count = 0
-            self._last_corpus_size = 0
+            self._corpus_state.reset()
             self.record_btn.configure(
                 text="⏹ Stop",
                 fg_color="#2d1f1f",
@@ -171,7 +171,7 @@ class IntegratedSearchbarApp(SearchbarApp):
             )
             logger.info(
                 "Corpus recording stopped corpus_size=%s",
-                len(self._corpus),
+                len(self._corpus_state),
             )
 
     def _on_summarize_clicked(self):
@@ -180,12 +180,12 @@ class IntegratedSearchbarApp(SearchbarApp):
                 "Please click Stop before summarizing."
             )
             return
-        if not self._corpus:
+        if not self._corpus_state.has_items():
             self.summary_panel.show_summary(
                 "Nothing recorded yet. Click Record, scroll through content, then click Stop."
             )
             return
-        text = " ".join(self._corpus)
+        text = self._corpus_state.joined_text()
         self.summary_panel.show_loading()
         threading.Thread(
             target=self._run_summarize,
@@ -203,13 +203,13 @@ class IntegratedSearchbarApp(SearchbarApp):
                 "Please click Stop before generating graph."
             )
             return
-        if not self._corpus:
+        if not self._corpus_state.has_items():
             self.summary_panel.show_summary(
                 "Nothing recorded yet. Click Record, scroll through content, then click Stop."
             )
             return
-        focus = self._infer_graph_focus()
-        text = " ".join(self._corpus)
+        focus = self._corpus_state.infer_focus()
+        text = self._corpus_state.joined_text()
         open_graph(
             {
                 "nodes": [
@@ -228,26 +228,6 @@ class IntegratedSearchbarApp(SearchbarApp):
             args=(text, focus),
             daemon=True,
         ).start()
-
-    def _infer_graph_focus(self):
-        tokens = Counter()
-        stopwords = {
-            "the", "and", "for", "with", "that", "this", "from", "have", "has", "are", "was", "were",
-            "but", "not", "you", "your", "into", "about", "their", "they", "them", "then", "than",
-            "where", "when", "what", "which", "while", "will", "would", "could", "should",
-        }
-        for phrase in self._corpus:
-            for token in re.findall(r"[A-Za-z0-9][A-Za-z0-9'-]*", phrase.lower()):
-                if len(token) < 3 or token in stopwords:
-                    continue
-                tokens[token] += 1
-        if tokens:
-            return tokens.most_common(1)[0][0]
-        for phrase in self._corpus:
-            parts = phrase.strip().split()
-            if parts:
-                return parts[0]
-        return "Main Topic"
 
     def _run_graph(self, text, focus):
         graph = build_knowledge_graph(text)
@@ -272,17 +252,14 @@ class IntegratedSearchbarApp(SearchbarApp):
         latest = None
         while not self.index_queue.empty():
             item = self.index_queue.get_nowait()
-            if isinstance(item, dict):
-                item_type = item.get("type")
-                if item_type == "refreshing":
-                    self.ocr_refreshing = True
-                    continue
-                if item_type == "index":
-                    latest = item.get("index", [])
-                    self.ocr_refreshing = False
-                    continue
-            latest = item
-            self.ocr_refreshing = False
+            parsed = parse_ocr_message(item)
+            if isinstance(parsed, OCRRefreshing):
+                self.ocr_refreshing = True
+                continue
+            if isinstance(parsed, OCRIndexUpdate):
+                latest = parsed.index
+                self.ocr_refreshing = False
+                continue
         if latest is not None:
             latest_signature = self._build_signature(latest)
             if latest_signature != self.current_index_signature:
@@ -528,12 +505,12 @@ class IntegratedSearchbarApp(SearchbarApp):
         if self.ai_var.get():
             self.search_token += 1
             self.semantic_request_queue.put(
-                {
-                    "token": self.search_token,
-                    "query": query,
-                    "index": index,
-                    "limit": MAX_RESULTS,
-                }
+                SemanticRequest(
+                    token=self.search_token,
+                    query=query,
+                    index=index,
+                    limit=MAX_RESULTS,
+                ).to_dict()
             )
 
     def _poll_index_queue(self):
@@ -550,24 +527,12 @@ class IntegratedSearchbarApp(SearchbarApp):
             logger.info("Received OCR index update size=%s", len(updated))
 
         if self._is_recording and self.current_index:
-            before = len(self._corpus)
-            for item in self.current_index:
-                phrase = item.get("original", "").strip()
-                if phrase and phrase not in self._corpus_seen:
-                    self._corpus.append(phrase)
-                    self._corpus_seen.add(phrase)
-            after = len(self._corpus)
-            if after == self._last_corpus_size:
-                self._stable_poll_count += 1
-            else:
-                self._stable_poll_count = 0
-                self._last_corpus_size = after
-
-            if self._stable_poll_count >= 3:
+            before, after, stable_count = self._corpus_state.ingest_index(self.current_index)
+            if stable_count >= 3:
                 self.result_label.configure(
                     text=f"✅ Captured — scroll now ({after} phrases)"
                 )
-            elif self._stable_poll_count < 3 and after != before:
+            elif stable_count < 3 and after != before:
                 self.result_label.configure(
                     text=f"⏺ Capturing... {after} phrases"
                 )
@@ -585,18 +550,20 @@ class IntegratedSearchbarApp(SearchbarApp):
 
         latest = None
         while not self.semantic_result_queue.empty():
-            latest = self.semantic_result_queue.get_nowait()
+            parsed = SemanticResult.from_obj(self.semantic_result_queue.get_nowait())
+            if parsed is not None:
+                latest = parsed
 
-        if latest is not None and latest["token"] == self.search_token and self.ai_var.get():
+        if latest is not None and latest.token == self.search_token and self.ai_var.get():
             merge_started_at = time.perf_counter()
-            merged = self._merge_results(self.latest_fuzzy_results, latest["results"])
+            merged = self._merge_results(self.latest_fuzzy_results, latest.results)
             merged = self._filter_excluded_matches(merged)
             merge_ms = (time.perf_counter() - merge_started_at) * 1000.0
             self.result_label.configure(text=f"{len(merged)} matches")
             overlay_ms = self._set_matches(merged)
             logger.info(
                 "Semantic merge applied token=%s matches=%s merge_ms=%.1f overlay_ms=%.1f",
-                latest["token"],
+                latest.token,
                 len(merged),
                 merge_ms,
                 overlay_ms,
