@@ -12,7 +12,6 @@ ctypes.windll.user32.SetProcessDPIAware()
 import keyboard
 import win32gui
 
-from ai.gemini import build_knowledge_graph, summarize_screen_text
 from config import (
     BLOCKED_CONSOLE_KEYWORDS,
     BLOCKED_WINDOW_PREFIXES,
@@ -36,12 +35,10 @@ from runtime.messages import (
     SemanticResult,
     parse_ocr_message,
 )
-from services.corpus_recorder import CorpusRecorder
+from services.ai_controller import AIController
 from threads.ocr_thread import OCRThread
 from threads.search_thread import SearchThread
 from ui.searchbar import SearchbarApp
-from ui.graph_panel import open_graph
-from ui.summary_panel import SummaryPanel
 from ui.tray import TrayController
 
 logger = logging.getLogger("uniseba.main")
@@ -78,9 +75,7 @@ class IntegratedSearchbarApp(SearchbarApp):
         self.locked_hwnd = None
         self._last_content_hwnd = None
         super().__init__()
-        self.summary_panel = SummaryPanel(self)
-        self._is_recording = False
-        self._corpus_state = CorpusRecorder()
+        self.ai_controller = AIController(self, logger)
         self.bind("<Escape>", lambda _event: self.hide_overlay())
         self.index_poll_job = self.after(POLL_MS, self._poll_index_queue)
         self.search_poll_job = self.after(POLL_MS, self._poll_semantic_results)
@@ -151,91 +146,13 @@ class IntegratedSearchbarApp(SearchbarApp):
         super()._on_query_changed(event)
 
     def _on_record_clicked(self):
-        if not self._is_recording:
-            self._is_recording = True
-            self._corpus_state.reset()
-            self.record_btn.configure(
-                text="⏹ Stop",
-                fg_color="#2d1f1f",
-                text_color="#ef4444",
-                border_color="#ef4444",
-            )
-            logger.info("Corpus recording started")
-        else:
-            self._is_recording = False
-            self.record_btn.configure(
-                text="⏺ Record",
-                fg_color="#1a1f29",
-                text_color="#f59e0b",
-                border_color="#f59e0b",
-            )
-            logger.info(
-                "Corpus recording stopped corpus_size=%s",
-                len(self._corpus_state),
-            )
+        self.ai_controller.on_record_clicked()
 
     def _on_summarize_clicked(self):
-        if self._is_recording:
-            self.summary_panel.show_summary(
-                "Please click Stop before summarizing."
-            )
-            return
-        if not self._corpus_state.has_items():
-            self.summary_panel.show_summary(
-                "Nothing recorded yet. Click Record, scroll through content, then click Stop."
-            )
-            return
-        text = self._corpus_state.joined_text()
-        self.summary_panel.show_loading()
-        threading.Thread(
-            target=self._run_summarize,
-            args=(text,),
-            daemon=True,
-        ).start()
-
-    def _run_summarize(self, text):
-        summary = summarize_screen_text(text)
-        self.after(0, lambda: self.summary_panel.show_summary(summary))
+        self.ai_controller.on_summarize_clicked()
 
     def _on_graph_clicked(self):
-        if self._is_recording:
-            self.summary_panel.show_summary(
-                "Please click Stop before generating graph."
-            )
-            return
-        if not self._corpus_state.has_items():
-            self.summary_panel.show_summary(
-                "Nothing recorded yet. Click Record, scroll through content, then click Stop."
-            )
-            return
-        focus = self._corpus_state.infer_focus()
-        text = self._corpus_state.joined_text()
-        open_graph(
-            {
-                "nodes": [
-                    {"id": "1", "label": focus},
-                    {"id": "2", "label": "Generating graph..."},
-                ],
-                "edges": [
-                    {"from": "1", "to": "2", "label": "building now"},
-                ],
-            },
-            focus,
-        )
-        self.summary_panel.show_summary("Generating graph...")
-        threading.Thread(
-            target=self._run_graph,
-            args=(text, focus),
-            daemon=True,
-        ).start()
-
-    def _run_graph(self, text, focus):
-        graph = build_knowledge_graph(text)
-        if isinstance(graph, str):
-            self.after(0, lambda: self.summary_panel.show_summary(graph))
-            return
-        self.after(0, lambda: open_graph(graph, focus))
-        self.after(0, lambda: self.summary_panel.show_summary("Graph generated."))
+        self.ai_controller.on_graph_clicked()
 
     def _set_matches(self, matches):
         """Redraw only when the overlay input actually changed."""
@@ -526,16 +443,10 @@ class IntegratedSearchbarApp(SearchbarApp):
             self.ocr_ready = True
             logger.info("Received OCR index update size=%s", len(updated))
 
-        if self._is_recording and self.current_index:
-            before, after, stable_count = self._corpus_state.ingest_index(self.current_index)
-            if stable_count >= 3:
-                self.result_label.configure(
-                    text=f"✅ Captured — scroll now ({after} phrases)"
-                )
-            elif stable_count < 3 and after != before:
-                self.result_label.configure(
-                    text=f"⏺ Capturing... {after} phrases"
-                )
+        self.ai_controller.ingest_index_for_recording(
+            self.current_index,
+            set_status=lambda text: self.result_label.configure(text=text),
+        )
         if updated is not None and self.visible and len(self.entry.get().strip()) >= MIN_QUERY_LENGTH:
             self._apply_search()
         elif self.ocr_refreshing and self.visible and len(self.entry.get().strip()) >= MIN_QUERY_LENGTH:
@@ -615,8 +526,7 @@ class IntegratedSearchbarApp(SearchbarApp):
             handles.add(self.winfo_id())
         if self.overlay.exists():
             handles.add(self.overlay.window.winfo_id())
-        if hasattr(self, "summary_panel") and self.summary_panel.winfo_exists():
-            handles.add(self.summary_panel.winfo_id())
+        handles.update(self.ai_controller.own_window_handles())
         return handles
 
     def shutdown(self):
@@ -637,6 +547,7 @@ class IntegratedSearchbarApp(SearchbarApp):
         if self.tray is not None:
             self.tray.stop()
             self.tray = None
+        self.ai_controller.shutdown()
         super().shutdown()
 
 
