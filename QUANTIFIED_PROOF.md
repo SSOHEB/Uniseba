@@ -1,13 +1,18 @@
 # Quantified Proof (Slide-Ready)
 
-## Runtime Latency Metrics
-Source: `uniseba.log` (analyzed on 2026-04-03) using `analyze_ocr_log.py` and log parsing.
+## Latest Runtime Latency Metrics (Apr 4, 2026)
+Source: `uniseba.log` filtered to `2026-04-04` entries using log parsing.
 
-| Metric | Sample Size | Mean | P50 | P90 | P99 |
-|---|---:|---:|---:|---:|---:|
-| OCR engine latency (`ocr_ms`) | 174 OCR cycles | 3014.2 ms | 1347.2 ms | 9022.5 ms | 18745.1 ms |
-| OCR end-to-end cycle (`total_cycle_ms`) | 174 OCR cycles | 3145.8 ms | 1491.1 ms | 9165.0 ms | 18952.6 ms |
-| Search apply latency (`total_search_ms`) | 85 search events | 6.78 ms | 5.50 ms | 11.70 ms | 37.00 ms |
+| Metric | Sample Size | Mean | P50 | P90 | P99 | Max |
+|---|---:|---:|---:|---:|---:|---:|
+| OCR end-to-end cycle (`total_cycle_ms`) | 143 OCR cycles | 2009.79 ms | 1413.00 ms | 4581.00 ms | 9583.80 ms | 11416.00 ms |
+| OCR engine latency (`ocr_ms`) | 143 OCR cycles | 1870.30 ms | 1274.10 ms | 4393.40 ms | 9375.20 ms | 11186.40 ms |
+| Search apply latency (`total_search_ms`) | 179 search events | 4.73 ms | 3.90 ms | 8.50 ms | 22.60 ms | 26.30 ms |
+| Semantic merge (`merge_ms`) | 179 merge events | 0.07 ms | 0.10 ms | 0.10 ms | 0.20 ms | 1.00 ms |
+
+### Latency Test Commands (Reproducible)
+- `python analyze_ocr_log.py uniseba.log --tail 4000000`
+- Parsed `Search applied ... total_search_ms` and `Semantic merge applied ... merge_ms` from `uniseba.log`
 
 ## Query Success (hit@k)
 Source: `ocr_accuracy_test.py` against `test_crop.png` (20 benchmark queries).
@@ -33,7 +38,7 @@ Source: `ocr_accuracy_test.py` against `test_crop.png` (20 benchmark queries).
 | `nehru` | True | True | True |
 
 ## Suggested Pitch Line
-"In our current benchmark run, search response stays in single-digit milliseconds on average (6.78 ms), and keyword retrieval achieved 100% hit@1/hit@5 across 20 validation queries."
+"In our latest Apr 4 runtime logs, search response remained single-digit milliseconds on average (4.73 ms), and our controlled benchmark achieved 100% hit@1/hit@5 on 20 validation queries."
 
 ## Honest Limitation (say this if asked)
 - Accuracy benchmark is currently single-image (`test_crop.png`) and should be expanded to a multi-scene benchmark for stronger external validity.

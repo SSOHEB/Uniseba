@@ -75,7 +75,7 @@ This file owns knowledge-graph HTML generation and pywebview launch mechanics. I
 This package file is empty and owns no runtime behavior.
 
 ### `ocr_accuracy_test.py`
-This file owns a deterministic benchmark script against `test_crop.png` that reports hit@1/5/10 for selected queries. It does not own runtime UI logic. It talks to `ocr.engine`, `ocr.index`, and `search.fuzzy`. Design choice: quick practical relevance benchmark rather than formal unit tests. Limitation: single-image benchmark can overfit.
+This file owns OCR/search benchmark execution and report generation. It supports a default single-image run (`test_crop.png`) and multi-image runs via a JSON cases file (`--cases-file`) with per-image query expectations, then emits a markdown report (`ocr_accuracy_report.md`). It does not own runtime UI logic. It talks to `ocr.engine`, `ocr.index`, and `search.fuzzy`. Design choice: practical retrieval benchmark (hit@1/5/10) that is easy to extend quickly for hackathon validation. Limitation: unless a multi-image cases file is supplied, default output remains a single-scene benchmark.
 
 ### `ocr_easyocr_test.py`
 This file owns direct EasyOCR smoke testing and raw dump generation to `ocr_test_output.txt`. It does not own indexing/ranking behavior. It talks directly to `easyocr`. Design choice: isolate OCR engine behavior from app logic. Limitation: hardcoded GPU=True and single input path.
@@ -168,7 +168,8 @@ Run OCR and analysis scripts:
 
 ```powershell
 python ocr_easyocr_test.py
-python ocr_accuracy_test.py
+python ocr_accuracy_test.py --report ocr_accuracy_report.md
+python ocr_accuracy_test.py --cases-file ocr_accuracy_cases.sample.json --report ocr_accuracy_report.md
 python analyze_ocr_log.py uniseba.log
 python analyze_ocr_log.py uniseba.log --tail 2000000
 ```

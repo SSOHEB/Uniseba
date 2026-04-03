@@ -97,4 +97,19 @@ Uniseba runs a **three-thread architecture**: the **main UI thread** handles int
 
 <hr />
 
+## Latest Benchmarks (Apr 4, 2026)
+
+| Metric | Result |
+|---|---|
+| OCR cycle latency (`total_cycle_ms`) | n=143, mean 2009.79 ms, p50 1413.00 ms, p90 4581.00 ms |
+| Search latency (`total_search_ms`) | n=179, mean 4.73 ms, p50 3.90 ms, p90 8.50 ms |
+| Semantic merge (`merge_ms`) | n=179, mean 0.07 ms, p90 0.10 ms |
+| Controlled query benchmark | hit@1 20/20, hit@5 20/20, hit@10 20/20 on `test_crop.png` |
+
+Benchmark notes:
+- Runtime metrics are extracted from `uniseba.log` for `2026-04-04`.
+- Accuracy benchmark is currently single-scene and should be expanded for broader validity.
+
+<hr />
+
 Built with obsession over latency, accuracy, and the belief that your screen should be as searchable as the internet.

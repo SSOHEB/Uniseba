@@ -1,0 +1,14 @@
+{
+  "images": [
+    {
+      "path": "test_crop.png",
+      "cases": [
+        { "query": "contents", "expected": ["contents"] },
+        { "query": "biography", "expected": ["biography"] },
+        { "query": "education", "expected": ["education"] },
+        { "query": "movement", "expected": ["movement"] },
+        { "query": "references", "expected": ["references"] }
+      ]
+    }
+  ]
+}

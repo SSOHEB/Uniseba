@@ -1,0 +1,326 @@
+{
+  "images": [
+    {
+      "path": "dataset real/WhatsApp Image 2026-04-04 at 01.14.53.jpeg",
+      "cases": [
+        {
+          "query": "file",
+          "expected": [
+            "file"
+          ]
+        },
+        {
+          "query": "edit",
+          "expected": [
+            "edit"
+          ]
+        },
+        {
+          "query": "selection",
+          "expected": [
+            "selection"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "dataset real/WhatsApp Image 2026-04-04 at 01.19.48.jpeg",
+      "cases": [
+        {
+          "query": "whatsapp",
+          "expected": [
+            "whatsapp"
+          ]
+        },
+        {
+          "query": "02/04/2026 at 15.33",
+          "expected": [
+            "02/04/2026 at 15.33"
+          ]
+        },
+        {
+          "query": "nif65",
+          "expected": [
+            "nif65"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "dataset real/WhatsApp Image 2026-04-04 at 01.22.14.jpeg",
+      "cases": [
+        {
+          "query": "raju",
+          "expected": [
+            "raju"
+          ]
+        },
+        {
+          "query": "institute",
+          "expected": [
+            "institute"
+          ]
+        },
+        {
+          "query": "technology",
+          "expected": [
+            "technology"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "dataset real/WhatsApp Image 2026-04-04 at 01.22.18.jpeg",
+      "cases": [
+        {
+          "query": "tirupat",
+          "expected": [
+            "tirupat"
+          ]
+        },
+        {
+          "query": "indian",
+          "expected": [
+            "indian"
+          ]
+        },
+        {
+          "query": "institute",
+          "expected": [
+            "institute"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "dataset real/WhatsApp Image 2026-04-04 at 01.22.25.jpeg",
+      "cases": [
+        {
+          "query": "slno",
+          "expected": [
+            "slno"
+          ]
+        },
+        {
+          "query": "roll.no",
+          "expected": [
+            "roll.no"
+          ]
+        },
+        {
+          "query": "name",
+          "expected": [
+            "name"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "dataset real/WhatsApp Image 2026-04-04 at 01.22.34.jpeg",
+      "cases": [
+        {
+          "query": "sl.no",
+          "expected": [
+            "sl.no"
+          ]
+        },
+        {
+          "query": "roll no",
+          "expected": [
+            "roll no"
+          ]
+        },
+        {
+          "query": "name",
+          "expected": [
+            "name"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "dataset real/WhatsApp Image 2026-04-04 at 01.22.49.jpeg",
+      "cases": [
+        {
+          "query": "whatsapp",
+          "expected": [
+            "whatsapp"
+          ]
+        },
+        {
+          "query": "2428-cse",
+          "expected": [
+            "2428-cse"
+          ]
+        },
+        {
+          "query": "chats",
+          "expected": [
+            "chats"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "dataset real/WhatsApp Image 2026-04-04 at 01.25.47.jpeg",
+      "cases": [
+        {
+          "query": "technology",
+          "expected": [
+            "technology"
+          ]
+        },
+        {
+          "query": "edition",
+          "expected": [
+            "edition"
+          ]
+        },
+        {
+          "query": "showcase",
+          "expected": [
+            "showcase"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "dataset real/WhatsApp Image 2026-04-04 at 01.25.59.jpeg",
+      "cases": [
+        {
+          "query": "code like a pro",
+          "expected": [
+            "code like a pro"
+          ]
+        },
+        {
+          "query": "for free",
+          "expected": [
+            "for free"
+          ]
+        },
+        {
+          "query": "html",
+          "expected": [
+            "html"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "dataset real/WhatsApp Image 2026-04-04 at 01.26.06.jpeg",
+      "cases": [
+        {
+          "query": "blockchain",
+          "expected": [
+            "blockchain"
+          ]
+        },
+        {
+          "query": "india",
+          "expected": [
+            "india"
+          ]
+        },
+        {
+          "query": "challenge",
+          "expected": [
+            "challenge"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "dataset real/WhatsApp Image 2026-04-04 at 01.26.24.jpeg",
+      "cases": [
+        {
+          "query": "file",
+          "expected": [
+            "file"
+          ]
+        },
+        {
+          "query": "edit",
+          "expected": [
+            "edit"
+          ]
+        },
+        {
+          "query": "selection",
+          "expected": [
+            "selection"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "dataset real/WhatsApp Image 2026-04-04 at 01.27.02.jpeg",
+      "cases": [
+        {
+          "query": "edit",
+          "expected": [
+            "edit"
+          ]
+        },
+        {
+          "query": "certificate jpeg",
+          "expected": [
+            "certificate jpeg"
+          ]
+        },
+        {
+          "query": "google developer groups",
+          "expected": [
+            "google developer groups"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "dataset real/WhatsApp Image 2026-04-04 at 01.27.23.jpeg",
+      "cases": [
+        {
+          "query": "edit",
+          "expected": [
+            "edit"
+          ]
+        },
+        {
+          "query": "1765384280273.jpg",
+          "expected": [
+            "1765384280273.jpg"
+          ]
+        },
+        {
+          "query": "remarkskill",
+          "expected": [
+            "remarkskill"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "dataset real/WhatsApp Image 2026-04-04 at 01.28.29.jpeg",
+      "cases": [
+        {
+          "query": "sample",
+          "expected": [
+            "sample"
+          ]
+        },
+        {
+          "query": "hospital",
+          "expected": [
+            "hospital"
+          ]
+        },
+        {
+          "query": "patient",
+          "expected": [
+            "patient"
+          ]
+        }
+      ]
+    }
+  ]
+}
