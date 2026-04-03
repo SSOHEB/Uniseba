@@ -1,9 +1,13 @@
 import argparse
+import logging
 import re
 from dataclasses import dataclass
 from datetime import datetime
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from statistics import mean
+
+logger = logging.getLogger("uniseba.tools.analyze_ocr_log")
 
 
 @dataclass(frozen=True)
@@ -77,14 +81,14 @@ def _summarize_cycles(label: str, cycles: list[OcrCycle]) -> None:
     words = [c.total_words for c in cycles]
     changed = [c.changed_regions for c in cycles]
 
-    print(f"{label}: n={len(cycles)}")
+    logger.info("%s: n=%s", label, len(cycles))
     if not cycles:
         return
-    print(
+    logger.info(
         "  ocr_ms:   mean=%s p50=%s p90=%s p99=%s"
         % (_fmt_ms(mean(ocr)), _fmt_ms(_pct(ocr, 0.50)), _fmt_ms(_pct(ocr, 0.90)), _fmt_ms(_pct(ocr, 0.99)))
     )
-    print(
+    logger.info(
         "  total_ms: mean=%s p50=%s p90=%s p99=%s"
         % (
             _fmt_ms(mean(total)),
@@ -93,29 +97,53 @@ def _summarize_cycles(label: str, cycles: list[OcrCycle]) -> None:
             _fmt_ms(_pct(total, 0.99)),
         )
     )
-    print(
+    logger.info(
         "  words:    mean=%s p50=%s p90=%s"
         % (_fmt_int(mean(words)), _fmt_int(_pct(words, 0.50)), _fmt_int(_pct(words, 0.90)))
     )
-    print(
+    logger.info(
         "  changed:  mean=%s p50=%s p90=%s"
         % (_fmt_int(mean(changed)), _fmt_int(_pct(changed, 0.50)), _fmt_int(_pct(changed, 0.90)))
     )
 
 
 def _summarize_scroll(estimates: list[ScrollEstimate]) -> None:
-    print(f"scroll-like estimates: n={len(estimates)}")
+    logger.info("scroll-like estimates: n=%s", len(estimates))
     if not estimates:
         return
     responses = [e.response for e in estimates]
     dys = [abs(e.dy) for e in estimates]
     dxs = [abs(e.dx) for e in estimates]
-    print("  response: mean=%.3f p50=%.3f p90=%.3f" % (mean(responses), _pct(responses, 0.50), _pct(responses, 0.90)))
-    print("  |dy|:     mean=%s p50=%s p90=%s" % (_fmt_int(mean(dys)), _fmt_int(_pct(dys, 0.50)), _fmt_int(_pct(dys, 0.90))))
-    print("  |dx|:     mean=%s p50=%s p90=%s" % (_fmt_int(mean(dxs)), _fmt_int(_pct(dxs, 0.50)), _fmt_int(_pct(dxs, 0.90))))
+    logger.info("  response: mean=%.3f p50=%.3f p90=%.3f", mean(responses), _pct(responses, 0.50), _pct(responses, 0.90))
+    logger.info("  |dy|:     mean=%s p50=%s p90=%s", _fmt_int(mean(dys)), _fmt_int(_pct(dys, 0.50)), _fmt_int(_pct(dys, 0.90)))
+    logger.info("  |dx|:     mean=%s p50=%s p90=%s", _fmt_int(mean(dxs)), _fmt_int(_pct(dxs, 0.50)), _fmt_int(_pct(dxs, 0.90)))
+
+
+def _configure_logging() -> None:
+    formatter = logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
+    root = logging.getLogger()
+    root.setLevel(logging.INFO)
+    for handler in list(root.handlers):
+        root.removeHandler(handler)
+
+    stream_handler = logging.StreamHandler()
+    stream_handler.setLevel(logging.INFO)
+    stream_handler.setFormatter(formatter)
+    root.addHandler(stream_handler)
+
+    file_handler = RotatingFileHandler(
+        "analyze_ocr.log",
+        maxBytes=1_000_000,
+        backupCount=2,
+        encoding="utf-8",
+    )
+    file_handler.setLevel(logging.INFO)
+    file_handler.setFormatter(formatter)
+    root.addHandler(file_handler)
 
 
 def main() -> int:
+    _configure_logging()
     ap = argparse.ArgumentParser(description="Analyze Uniseba OCR performance from uniseba.log")
     ap.add_argument("log", nargs="?", default="uniseba.log", help="Path to uniseba.log (default: ./uniseba.log)")
     ap.add_argument("--tail", type=int, default=0, help="Only analyze the last N bytes (0 = full file)")
@@ -164,26 +192,32 @@ def main() -> int:
                 )
             )
 
-    print(f"log: {path}  cycles={len(cycles)}  scroll_estimates={len(scroll)}")
+    logger.info("log: %s  cycles=%s  scroll_estimates=%s", path, len(cycles), len(scroll))
     if cycles:
-        print(f"time range: {min(c.ts for c in cycles)} .. {max(c.ts for c in cycles)}")
-    print()
+        logger.info("time range: %s .. %s", min(c.ts for c in cycles), max(c.ts for c in cycles))
+    logger.info("")
 
     _summarize_cycles("all cycles", cycles)
-    print()
+    logger.info("")
     _summarize_cycles("full_window=0 (incremental/scroll)", [c for c in cycles if not c.full_window])
-    print()
+    logger.info("")
     _summarize_cycles("full_window=1 (full OCR)", [c for c in cycles if c.full_window])
-    print()
+    logger.info("")
     _summarize_scroll(scroll)
-    print()
+    logger.info("")
 
     if cycles:
         slow = sorted(cycles, key=lambda c: c.total_cycle_ms, reverse=True)[:10]
-        print("top 10 slowest cycles:")
+        logger.info("top 10 slowest cycles:")
         for c in slow:
-            print(
-                f"  {c.ts} full_window={int(c.full_window)} total_cycle_ms={c.total_cycle_ms:.1f} ocr_ms={c.ocr_ms:.1f} changed_regions={c.changed_regions} words={c.total_words}"
+            logger.info(
+                "  %s full_window=%s total_cycle_ms=%.1f ocr_ms=%.1f changed_regions=%s words=%s",
+                c.ts,
+                int(c.full_window),
+                c.total_cycle_ms,
+                c.ocr_ms,
+                c.changed_regions,
+                c.total_words,
             )
 
     return 0
@@ -191,4 +225,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

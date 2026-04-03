@@ -1,5 +1,7 @@
 """Run a lightweight OCR/search accuracy benchmark against the saved crop."""
 
+import logging
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 from PIL import Image
@@ -11,6 +13,7 @@ from search.fuzzy import fuzzy_search
 
 TEST_IMAGE = Path("test_crop.png")
 REPORT_PATH = Path("ocr_accuracy_report.txt")
+logger = logging.getLogger("uniseba.tools.ocr_accuracy")
 
 # These cases are intentionally simple and visible in test_crop.png.
 # They measure whether the current OCR + fuzzy pipeline can surface an
@@ -58,6 +61,23 @@ def _format_result(result):
 
 
 def main():
+    formatter = logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
+    root = logging.getLogger()
+    root.setLevel(logging.INFO)
+    for handler in list(root.handlers):
+        root.removeHandler(handler)
+    stream_handler = logging.StreamHandler()
+    stream_handler.setFormatter(formatter)
+    root.addHandler(stream_handler)
+    file_handler = RotatingFileHandler(
+        "ocr_accuracy.log",
+        maxBytes=1_000_000,
+        backupCount=2,
+        encoding="utf-8",
+    )
+    file_handler.setFormatter(formatter)
+    root.addHandler(file_handler)
+
     if not TEST_IMAGE.exists():
         raise FileNotFoundError(f"Missing benchmark image: {TEST_IMAGE}")
 
@@ -109,7 +129,7 @@ def main():
     )
 
     REPORT_PATH.write_text("\n".join(lines), encoding="utf-8")
-    print(f"Wrote OCR accuracy report to {REPORT_PATH}")
+    logger.info("Wrote OCR accuracy report to %s", REPORT_PATH)
 
 
 if __name__ == "__main__":

@@ -1,9 +1,12 @@
 ﻿"""Floating search bar UI base for the integrated overlay application."""
 
+import logging
 import customtkinter as ctk
 
 from config import DEBOUNCE_MS
 from ui.overlay import OverlayWindow
+
+logger = logging.getLogger("uniseba.ui.searchbar")
 
 
 class SearchbarApp(ctk.CTk):
@@ -152,8 +155,7 @@ class SearchbarApp(ctk.CTk):
         if not self.running:
             return
         query = self.entry.get().strip()
-        print(f"[UI] query typed: {query}")
-        print(f"[searchbar] key query={query!r}")
+        logger.debug("query_typed=%r", query)
         if self.debounce_job is not None:
             self.after_cancel(self.debounce_job)
         self.debounce_job = self.after(DEBOUNCE_MS, self._apply_search)
