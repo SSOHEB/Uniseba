@@ -27,7 +27,7 @@ This file owns a simple active-window capture helper used by OCR test paths. It 
 This package file is empty and owns no runtime behavior. It only marks the package namespace.
 
 ### `ocr/engine.py`
-This file owns EasyOCR integration and conversion from OCR polygons to axis-aligned word boxes in absolute coordinates. It does not own change detection, index merging, or search. It talks to `easyocr`, `torch`, PIL/NumPy, and `ocr/index.py` for its local test runner. Design choices include module-level reader initialization, GPU auto-detection, and selective upscale only for genuinely small images. Limitations: model download behavior depends on environment, and confidence filtering is basic.
+This file owns EasyOCR integration and conversion from OCR polygons to axis-aligned word boxes in absolute coordinates. It does not own change detection, index merging, or search. It talks to `easyocr`, `torch`, PIL/NumPy, and `ocr/index.py` for its local test runner. Design choices include lazy reader initialization on first OCR call, GPU auto-detection, local model cache directory (`models/easyocr`), and selective upscale only for genuinely small images. Limitations: first OCR call may incur one-time model load delay, and confidence filtering is basic.
 
 ### `ocr/index.py`
 This file owns text normalization and heuristics that convert raw OCR words into searchable entries (`word`, `original`, coordinates, proxy confidence). It does not own OCR itself or ranking. It is called by `ocr/engine.py` and `threads/ocr_thread.py`. Design choices include filtering obvious OCR/UI noise, dropping low-value one-character tokens, and splitting long multi-word detections into per-word entries. Limitation: proxy confidence is geometric (height-based), not OCR-native probability.
@@ -75,7 +75,7 @@ This file owns knowledge-graph HTML generation and pywebview launch mechanics. I
 This package file is empty and owns no runtime behavior.
 
 ### `ocr_accuracy_test.py`
-This file owns OCR/search benchmark execution and report generation. It supports a default single-image run (`test_crop.png`) and multi-image runs via a JSON cases file (`--cases-file`) with per-image query expectations, then emits a markdown report (`ocr_accuracy_report.md`). It does not own runtime UI logic. It talks to `ocr.engine`, `ocr.index`, and `search.fuzzy`. Design choice: practical retrieval benchmark (hit@1/5/10) that is easy to extend quickly for hackathon validation. Limitation: unless a multi-image cases file is supplied, default output remains a single-scene benchmark.
+This file owns OCR/search benchmark execution and report generation. It supports a default single-image run (`test_crop.png`) and multi-image runs via a JSON cases file (`--cases-file`) with per-image query expectations, then emits markdown reports (for example `ocr_accuracy_report.md` and `ocr_accuracy_report.dataset_real.md`). It does not own runtime UI logic. It talks to `ocr.engine`, `ocr.index`, and `search.fuzzy`. Design choice: practical retrieval benchmark (hit@1/5/10) that is easy to extend quickly for hackathon validation across real screenshots. Limitation: when cases are auto-generated from OCR-visible tokens, results are retrieval-oriented and not equivalent to full ground-truth CER/word-accuracy validation.
 
 ### `ocr_easyocr_test.py`
 This file owns direct EasyOCR smoke testing and raw dump generation to `ocr_test_output.txt`. It does not own indexing/ranking behavior. It talks directly to `easyocr`. Design choice: isolate OCR engine behavior from app logic. Limitation: hardcoded GPU=True and single input path.
@@ -136,7 +136,7 @@ Stabilization smoothing is currently bypassed (`_stabilize_index` returns newest
 Pywebview was selected instead of opening a browser tab to keep graph visualization in an app-owned desktop window with predictable size and topmost behavior. Because pywebview requires main-thread startup in a process, the implementation launches a separate Python subprocess for reliability. Groq is used instead of Gemini in current code despite module naming; the stack uses Groq’s chat completions with `llama-3.3-70b-versatile` for both summarization and graph extraction.
 
 ## 11. Known Limitations And Technical Debt
-The project is functional but not production-hardened. The central orchestrator class in `main.py` is large and mixes concerns. Some modules retain dead or legacy paths (`search/hybrid.py`, unused helper methods/fields in OCR thread). Dependency declarations are incomplete relative to imports (notably `groq`, `python-dotenv`, and `pywebview` are used but not listed in `requirements.txt`), which can break fresh setups.
+The project is functional but not production-hardened. The central orchestrator class in `main.py` is large and mixes concerns. Some modules retain dead or legacy paths (`search/hybrid.py`, unused helper methods/fields in OCR thread). Dependency versions may drift between local environments and pinned `requirements.txt`, which can affect strict reproducibility across machines.
 
 LLM outputs are parsed optimistically; malformed JSON returns a user error string but no repair pass is attempted. Semantic embedding cache has no eviction and can grow over long sessions with many unique OCR indexes. OCR heuristics are tuned for responsiveness and can miss very small text or noisy regions. There are no formal unit/integration test suites; validation is primarily script-based and manual. UI status strings show encoding artifacts in some consoles/log contexts. CDN dependency for vis.js introduces network fragility for graph rendering in offline-restricted environments.
 
@@ -148,7 +148,6 @@ cd C:\Users\ssohe\Desktop\uniseba
 .\venv311\Scripts\Activate.ps1
 python -m pip install --upgrade pip
 pip install -r requirements.txt
-pip install groq python-dotenv pywebview
 ```
 
 Run the app:

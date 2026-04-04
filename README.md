@@ -83,6 +83,16 @@ Run:
 python main.py
 ```
 
+Optional one-time model prewarm (recommended before demo):
+
+```powershell
+python prewarm_models.py
+```
+
+Notes:
+- EasyOCR weights are cached under `models/easyocr`.
+- Semantic model prewarm respects `SEMANTIC_LOCAL_FILES_ONLY`; if model files are not cached, app still runs with fuzzy search.
+
 <hr />
 
 ## Architecture In One Paragraph
@@ -104,11 +114,21 @@ Uniseba runs a **three-thread architecture**: the **main UI thread** handles int
 | OCR cycle latency (`total_cycle_ms`) | n=143, mean 2009.79 ms, p50 1413.00 ms, p90 4581.00 ms |
 | Search latency (`total_search_ms`) | n=179, mean 4.73 ms, p50 3.90 ms, p90 8.50 ms |
 | Semantic merge (`merge_ms`) | n=179, mean 0.07 ms, p90 0.10 ms |
-| Controlled query benchmark | hit@1 20/20, hit@5 20/20, hit@10 20/20 on `test_crop.png` |
+| Multi-image retrieval benchmark | hit@1 42/42, hit@5 42/42, hit@10 42/42 on 14 images (`dataset real`) |
+| Controlled baseline benchmark | hit@1 20/20, hit@5 20/20, hit@10 20/20 on `test_crop.png` |
 
 Benchmark notes:
 - Runtime metrics are extracted from `uniseba.log` for `2026-04-04`.
-- Accuracy benchmark is currently single-scene and should be expanded for broader validity.
+- Multi-image benchmark is self-retrieval style (queries generated from OCR-visible tokens), not full CER/word-accuracy ground-truth evaluation.
+
+<hr />
+
+## Submission Pack
+- `HACKATHON_FINAL_CHECKLIST.md`
+- `QUANTIFIED_PROOF.md`
+- `PITCH_ARCHITECTURE_HLD_LLD.md`
+- `TECHNICAL_DEEP_DIVE.md`
+- `TEST_STATUS_MATRIX.md`
 
 <hr />
 

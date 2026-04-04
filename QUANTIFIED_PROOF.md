@@ -15,30 +15,32 @@ Source: `uniseba.log` filtered to `2026-04-04` entries using log parsing.
 - Parsed `Search applied ... total_search_ms` and `Semantic merge applied ... merge_ms` from `uniseba.log`
 
 ## Query Success (hit@k)
-Source: `ocr_accuracy_test.py` against `test_crop.png` (20 benchmark queries).
+Primary source: `ocr_accuracy_report.dataset_real.md` (14 images from `dataset real`, 42 queries).
+Baseline source: `ocr_accuracy_report.md` (controlled `test_crop.png` run).
 
 | Aggregate | Score |
 |---|---:|
-| hit@1 | 20/20 (100%) |
-| hit@5 | 20/20 (100%) |
-| hit@10 | 20/20 (100%) |
+| Multi-image hit@1 | 42/42 (100%) |
+| Multi-image hit@5 | 42/42 (100%) |
+| Multi-image hit@10 | 42/42 (100%) |
+| Controlled baseline hit@1/hit@5/hit@10 | 20/20 (100%), 20/20 (100%), 20/20 (100%) |
 
-### 10 Example Queries (for slide evidence)
+### 10 Example Queries (dataset real sample)
 | Query | hit@1 | hit@5 | hit@10 |
 |---|---:|---:|---:|
-| `contents` | True | True | True |
-| `biography` | True | True | True |
-| `early` | True | True | True |
-| `education` | True | True | True |
-| `movement` | True | True | True |
-| `references` | True | True | True |
-| `history` | True | True | True |
-| `source` | True | True | True |
-| `gandhi` | True | True | True |
-| `nehru` | True | True | True |
+| `file` | True | True | True |
+| `edit` | True | True | True |
+| `selection` | True | True | True |
+| `technology` | True | True | True |
+| `institute` | True | True | True |
+| `blockchain` | True | True | True |
+| `hospital` | True | True | True |
+| `patient` | True | True | True |
+| `certificate jpeg` | True | True | True |
+| `remarkskill` | True | True | True |
 
 ## Suggested Pitch Line
-"In our latest Apr 4 runtime logs, search response remained single-digit milliseconds on average (4.73 ms), and our controlled benchmark achieved 100% hit@1/hit@5 on 20 validation queries."
+"In our latest Apr 4 runtime logs, search response remained single-digit milliseconds on average (4.73 ms), and our multi-image benchmark run achieved 100% hit@1/hit@5 across 42 validation queries."
 
 ## Honest Limitation (say this if asked)
-- Accuracy benchmark is currently single-image (`test_crop.png`) and should be expanded to a multi-scene benchmark for stronger external validity.
+- Multi-image benchmark queries were auto-generated from OCR-visible tokens (self-retrieval style), so this is not equivalent to full ground-truth CER/word-accuracy validation.
