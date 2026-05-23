@@ -769,21 +769,6 @@ class OCRThread(threading.Thread):
             filtered.append(item)
         return filtered
 
-    def _prepare_region_image(self, image):
-        """Slightly downscale OCR regions so partial passes stay lightweight."""
-        # NOTE: kept for backwards compatibility, but currently unused.
-        # If we re-enable downscaling, we must also scale OCR coordinates back up.
-        return image
-
     def _stabilize_index(self, new_index):
         """Temporary safe mode: trust the newest OCR frame without smoothing."""
         return new_index
-
-    def _find_previous_match(self, item, candidates):
-        """Find the closest prior word with the same normalized text."""
-        if not candidates:
-            return None
-        return min(
-            candidates,
-            key=lambda candidate: abs(candidate["x"] - item["x"]) + abs(candidate["y"] - item["y"]),
-        )

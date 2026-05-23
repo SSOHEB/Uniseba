@@ -66,8 +66,3 @@ def get_changed_regions(
                 }
             )
     return changed
-
-
-def has_significant_change(previous_image, current_image, threshold=6.0, grid=DEFAULT_GRID):
-    """Return True when at least one grid region changes significantly."""
-    return bool(get_changed_regions(previous_image, current_image, grid=grid, threshold=threshold))
