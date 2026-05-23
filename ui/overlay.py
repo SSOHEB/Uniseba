@@ -3,9 +3,7 @@
 import logging
 import tkinter as tk
 
-import win32con
 import win32clipboard
-import win32gui
 
 KEY_COLOR = "#010101"
 HIGHLIGHT_COLOR = "#FFD700"

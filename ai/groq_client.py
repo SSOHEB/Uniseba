@@ -1,7 +1,6 @@
 """Groq LLM client for Uniseba"""
 
 import os
-import json
 from dotenv import load_dotenv
 from groq import Groq
 
