@@ -59,6 +59,15 @@ class IntegratedSearchbarApp(SearchbarApp):
         self.tray = None
         self.search_poll_job = None
         self.index_poll_job = None
+        self.ui_state_poll_job = None
+        self._ui_state_lock = threading.Lock()
+        self._ui_state = {
+            "excluded_hwnds": [],
+            "exclusion_rects": [],
+            "preferred_hwnds": [],
+            "locked_hwnd": None,
+            "lock_active": False,
+        }
         self.search_token = 0
         self.latest_query = ""
         self.latest_fuzzy_results = []
@@ -77,6 +86,7 @@ class IntegratedSearchbarApp(SearchbarApp):
         super().__init__()
         self.ai_controller = AIController(self, logger)
         self.bind("<Escape>", lambda _event: self.hide_overlay())
+        self._refresh_ui_state()
         self.index_poll_job = self.after(POLL_MS, self._poll_index_queue)
         self.search_poll_job = self.after(POLL_MS, self._poll_semantic_results)
 
@@ -104,7 +114,7 @@ class IntegratedSearchbarApp(SearchbarApp):
 
     def _is_valid_shortcut_target(self, hwnd):
         """Reject obvious non-content windows before locking the current foreground window."""
-        if not hwnd or not win32gui.IsWindow(hwnd) or hwnd in self.own_window_handles():
+        if not hwnd or not win32gui.IsWindow(hwnd) or hwnd in self._cached_excluded_hwnds():
             return False
 
         class_name = win32gui.GetClassName(hwnd).lower()
@@ -209,6 +219,37 @@ class IntegratedSearchbarApp(SearchbarApp):
                 "bottom": bottom + SEARCH_UI_EXCLUSION_PADDING,
             }
         ]
+
+    def _refresh_ui_state(self):
+        """Cache Tk-owned state for worker threads to read safely."""
+        try:
+            state = {
+                "excluded_hwnds": list(self.own_window_handles()),
+                "exclusion_rects": self._search_ui_exclusion_rects(),
+                "preferred_hwnds": [self.target_hwnd] if self.target_hwnd else [],
+                "locked_hwnd": self.locked_hwnd,
+                "lock_active": self.locked_hwnd is not None,
+            }
+            with self._ui_state_lock:
+                self._ui_state = state
+        except Exception as e:
+            logger.exception("_refresh_ui_state error: %s", e)
+        finally:
+            if self.running and self.winfo_exists():
+                self.ui_state_poll_job = self.after(POLL_MS, self._refresh_ui_state)
+
+    def _get_ui_state(self):
+        """Return a plain snapshot of UI state for non-UI threads."""
+        with self._ui_state_lock:
+            state = dict(self._ui_state)
+        state["excluded_hwnds"] = list(state.get("excluded_hwnds", []))
+        state["exclusion_rects"] = list(state.get("exclusion_rects", []))
+        state["preferred_hwnds"] = list(state.get("preferred_hwnds", []))
+        return state
+
+    def _cached_excluded_hwnds(self):
+        """Read cached window handles without touching Tk widgets."""
+        return set(self._get_ui_state().get("excluded_hwnds", []))
 
     def _filter_excluded_matches(self, matches):
         """Drop matches that overlap the floating search UI itself."""
@@ -547,6 +588,9 @@ class IntegratedSearchbarApp(SearchbarApp):
         if self.search_poll_job is not None:
             self.after_cancel(self.search_poll_job)
             self.search_poll_job = None
+        if self.ui_state_poll_job is not None:
+            self.after_cancel(self.ui_state_poll_job)
+            self.ui_state_poll_job = None
         if self.global_hotkey is not None:
             keyboard.remove_hotkey(self.global_hotkey)
             self.global_hotkey = None
@@ -625,11 +669,11 @@ def main():
     ocr_thread = OCRThread(
         index_queue,
         stop_event,
-        excluded_hwnds=app.own_window_handles,
-        exclusion_rects=app._search_ui_exclusion_rects,
-        preferred_hwnd=lambda: app.target_hwnd,
-        locked_hwnd=lambda: app.locked_hwnd,
-        lock_active=lambda: app.locked_hwnd is not None,
+        excluded_hwnds=lambda: app._get_ui_state()["excluded_hwnds"],
+        exclusion_rects=lambda: app._get_ui_state()["exclusion_rects"],
+        preferred_hwnd=lambda: next(iter(app._get_ui_state()["preferred_hwnds"]), None),
+        locked_hwnd=lambda: app._get_ui_state()["locked_hwnd"],
+        lock_active=lambda: app._get_ui_state()["lock_active"],
     )
     semantic_thread = SearchThread(semantic_request_queue, semantic_result_queue, stop_event)
     ocr_thread.start()

@@ -73,12 +73,18 @@ class OCRThread(threading.Thread):
         self.last_stable_index = []
         self.last_update_at = 0.0
         self.last_forced_ocr_at = 0.0
+        self._cycle_excluded_hwnds = set()
+        self._cycle_exclusion_rects = []
+        self._cycle_preferred_hwnd = None
+        self._cycle_locked_hwnd = None
+        self._cycle_lock_active = False
 
     def run(self):
         """Keep OCR results fresh until the application exits."""
         while not self.stop_event.is_set():
             try:
                 cycle_started_at = time.perf_counter()
+                self._refresh_cycle_state()
                 self._update_target_window()
                 capture_started_at = time.perf_counter()
                 image, rect = self._capture_target_window()
@@ -203,6 +209,34 @@ class OCRThread(threading.Thread):
                 self.logger.exception("OCR thread failed while updating the index.")
 
             self.stop_event.wait(SCAN_INTERVAL_MS / 1000.0)
+
+    def _refresh_cycle_state(self):
+        """Read thread-safe UI state callbacks once per OCR cycle."""
+        try:
+            self._cycle_excluded_hwnds = set(self.excluded_hwnds() or [])
+        except Exception:
+            self.logger.exception("Failed to read OCR excluded window state.")
+            self._cycle_excluded_hwnds = set()
+        try:
+            self._cycle_exclusion_rects = list(self.exclusion_rects() or [])
+        except Exception:
+            self.logger.exception("Failed to read OCR exclusion rectangle state.")
+            self._cycle_exclusion_rects = []
+        try:
+            self._cycle_preferred_hwnd = self._normalize_hwnd(self.preferred_hwnd())
+        except Exception:
+            self.logger.exception("Failed to read OCR preferred window state.")
+            self._cycle_preferred_hwnd = None
+        try:
+            self._cycle_locked_hwnd = self._normalize_hwnd(self.locked_hwnd())
+        except Exception:
+            self.logger.exception("Failed to read OCR locked window state.")
+            self._cycle_locked_hwnd = None
+        try:
+            self._cycle_lock_active = bool(self.lock_active())
+        except Exception:
+            self.logger.exception("Failed to read OCR lock state.")
+            self._cycle_lock_active = False
 
     def _maybe_build_scroll_index(self, prev_image, image, rect, changed_regions):
         """Attempt a scroll-specialized incremental update.
@@ -358,13 +392,18 @@ class OCRThread(threading.Thread):
 
     def _update_target_window(self):
         """Track the last foreground window that does not belong to Uniseba."""
+        locked = self._cycle_locked_hwnd
+        if self._cycle_lock_active and locked and self._is_valid_target(locked):
+            self.target_hwnd = locked
+            return
+
         hwnd = self._normalize_hwnd(win32gui.GetForegroundWindow())
         if not self.has_found_valid_target:
             if hwnd and self._is_bootstrap_target(hwnd):
                 self.target_hwnd = hwnd
                 self.logger.info("Selected bootstrap OCR target hwnd=%s title=%r", hwnd, win32gui.GetWindowText(hwnd))
                 return
-            preferred = self._normalize_hwnd(self.preferred_hwnd())
+            preferred = self._cycle_preferred_hwnd
             if preferred and self._is_bootstrap_target(preferred):
                 self.target_hwnd = preferred
                 self.logger.info(
@@ -378,7 +417,7 @@ class OCRThread(threading.Thread):
             self.target_hwnd = hwnd
             self.logger.info("Selected OCR target hwnd=%s title=%r", hwnd, win32gui.GetWindowText(hwnd))
             return
-        preferred = self._normalize_hwnd(self.preferred_hwnd())
+        preferred = self._cycle_preferred_hwnd
         if preferred and self._is_valid_target(preferred):
             self.target_hwnd = preferred
             self.logger.info("Selected preferred OCR target hwnd=%s title=%r", preferred, win32gui.GetWindowText(preferred))
@@ -388,7 +427,7 @@ class OCRThread(threading.Thread):
         if not hwnd or not win32gui.IsWindow(hwnd) or win32gui.IsIconic(hwnd):
             self.logger.debug("Rejected bootstrap target hwnd=%s because it is invalid or minimized", hwnd)
             return False
-        if hwnd in self.excluded_hwnds():
+        if hwnd in self._cycle_excluded_hwnds:
             self.logger.debug("Rejected bootstrap target hwnd=%s because it belongs to Uniseba", hwnd)
             return False
         class_name = win32gui.GetClassName(hwnd)
@@ -421,7 +460,7 @@ class OCRThread(threading.Thread):
         if not hwnd or not win32gui.IsWindow(hwnd) or win32gui.IsIconic(hwnd):
             self.logger.debug("Rejected OCR target hwnd=%s because it is invalid or minimized", hwnd)
             return False
-        if hwnd in self.excluded_hwnds():
+        if hwnd in self._cycle_excluded_hwnds:
             self.logger.debug("Rejected OCR target hwnd=%s because it belongs to Uniseba", hwnd)
             return False
         class_name = win32gui.GetClassName(hwnd)
@@ -531,7 +570,7 @@ class OCRThread(threading.Thread):
 
     def _expanded_exclusion_rects(self):
         """Pad self-UI exclusion rectangles so OCR also misses border/shadow bleed."""
-        rects = self.exclusion_rects() or []
+        rects = self._cycle_exclusion_rects
         if not rects:
             return []
         expanded = []
