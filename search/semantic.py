@@ -38,9 +38,18 @@ def _get_model():
     return _MODEL
 
 
+# Coordinates bucketed to 8px grid for scroll stability
+# A 1-pixel shift will not invalidate the cache
 def _index_key(index):
     """Build a stable cache key from word text and absolute coordinates."""
-    return tuple((entry["word"], entry["x"], entry["y"]) for entry in index)
+    return tuple(
+        (
+            entry["word"],
+            round(entry["x"] / 8) * 8,
+            round(entry["y"] / 8) * 8,
+        )
+        for entry in index
+    )
 
 
 def _get_index_embeddings(index):
