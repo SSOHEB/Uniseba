@@ -93,6 +93,8 @@ PARTIAL_OCR_MAX_AREA_RATIO = 0.85
 OCR_UPDATE_DEBOUNCE_MS = 100
 
 # Maximum allowed OCR word-count jump before a frame is treated as unstable.
+# Unused in current build — retained for future use
+# Last used in: OCR frame stabilization smoothing before trusting the newest frame directly.
 OCR_STABILITY_COUNT_THRESHOLD = 40
 
 # Force a refresh even when no region changed after this many milliseconds.
