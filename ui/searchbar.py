@@ -89,45 +89,7 @@ class SearchbarApp(ctk.CTk):
         )
         self.record_btn.pack(side="left", padx=(4, 0))
 
-        self.summarize_btn = ctk.CTkButton(
-            button_frame,
-            text="Summarize",
-            fg_color="#1a1f29",
-            hover_color="#1a2632",
-            text_color="#8b949e",
-            border_color="#30363d",
-            border_width=1,
-            corner_radius=6,
-            font=("Segoe UI", 9),
-            width=80,
-            height=28,
-            command=self._on_summarize_clicked,
-        )
-        self.summarize_btn.pack(side="left", padx=(4, 0))
-
-        self.graph_btn = ctk.CTkButton(
-            button_frame,
-            text="⬡ Graph",
-            fg_color="#1a1f29",
-            hover_color="#1a2632",
-            text_color="#00d4ff",
-            border_color="#00d4ff",
-            border_width=1,
-            corner_radius=6,
-            font=("Segoe UI", 9, "bold"),
-            width=70,
-            height=28,
-            command=self._on_graph_clicked,
-        )
-        self.graph_btn.pack(side="left", padx=(4, 0))
-
     def _on_record_clicked(self):
-        pass
-
-    def _on_summarize_clicked(self):
-        pass
-
-    def _on_graph_clicked(self):
         pass
 
     def toggle_visibility(self):

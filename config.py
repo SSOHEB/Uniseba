@@ -49,6 +49,9 @@ SEMANTIC_MODEL_NAME = "all-MiniLM-L6-v2"
 # When True, only load a model that already exists locally.
 SEMANTIC_LOCAL_FILES_ONLY = True
 
+# Maximum number of OCR index embedding sets retained for semantic reranking.
+SEMANTIC_CACHE_MAX = 50
+
 
 # OCR thread timing and capture settings
 

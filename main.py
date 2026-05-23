@@ -148,12 +148,6 @@ class IntegratedSearchbarApp(SearchbarApp):
     def _on_record_clicked(self):
         self.ai_controller.on_record_clicked()
 
-    def _on_summarize_clicked(self):
-        self.ai_controller.on_summarize_clicked()
-
-    def _on_graph_clicked(self):
-        self.ai_controller.on_graph_clicked()
-
     def _set_matches(self, matches):
         """Redraw only when the overlay input actually changed."""
         signature = self._build_signature(matches)
@@ -421,66 +415,78 @@ class IntegratedSearchbarApp(SearchbarApp):
 
         if self.ai_var.get():
             self.search_token += 1
-            self.semantic_request_queue.put(
-                SemanticRequest(
-                    token=self.search_token,
-                    query=query,
-                    index=index,
-                    limit=MAX_RESULTS,
-                ).to_dict()
-            )
+            try:
+                self.semantic_request_queue.put_nowait(
+                    SemanticRequest(
+                        token=self.search_token,
+                        query=query,
+                        index=index,
+                        limit=MAX_RESULTS,
+                    ).to_dict()
+                )
+            except queue.Full:
+                pass
 
     def _poll_index_queue(self):
         """Keep the current OCR index fresh without blocking the UI thread."""
-        hwnd = win32gui.GetForegroundWindow()
-        if hwnd and self._is_valid_shortcut_target(hwnd):
-            self._last_content_hwnd = hwnd
-        if not self.running or not self.winfo_exists():
-            return
+        try:
+            hwnd = win32gui.GetForegroundWindow()
+            if hwnd and self._is_valid_shortcut_target(hwnd):
+                self._last_content_hwnd = hwnd
+            if not self.running or not self.winfo_exists():
+                return
 
-        updated = self._drain_latest_index()
-        if updated is not None:
-            self.ocr_ready = True
-            logger.info("Received OCR index update size=%s", len(updated))
+            updated = self._drain_latest_index()
+            if updated is not None:
+                self.ocr_ready = True
+                logger.info("Received OCR index update size=%s", len(updated))
 
-        self.ai_controller.ingest_index_for_recording(
-            self.current_index,
-            set_status=lambda text: self.result_label.configure(text=text),
-        )
-        if updated is not None and self.visible and len(self.entry.get().strip()) >= MIN_QUERY_LENGTH:
-            self._apply_search()
-        elif self.ocr_refreshing and self.visible and len(self.entry.get().strip()) >= MIN_QUERY_LENGTH:
-            # Do not clear existing highlights; just communicate that OCR is catching up.
-            self.result_label.configure(text="Updating visible text...")
-        self.index_poll_job = self.after(POLL_MS, self._poll_index_queue)
+            self.ai_controller.ingest_index_for_recording(
+                self.current_index,
+                set_status=lambda text: self.result_label.configure(text=text),
+            )
+            if updated is not None and self.visible and len(self.entry.get().strip()) >= MIN_QUERY_LENGTH:
+                self._apply_search()
+            elif self.ocr_refreshing and self.visible and len(self.entry.get().strip()) >= MIN_QUERY_LENGTH:
+                # Do not clear existing highlights; just communicate that OCR is catching up.
+                self.result_label.configure(text="Updating visible text...")
+        except Exception as e:
+            logger.exception("_poll_index_queue error: %s", e)
+        finally:
+            if self.running and self.winfo_exists():
+                self.index_poll_job = self.after(POLL_MS, self._poll_index_queue)
 
     def _poll_semantic_results(self):
         """Apply semantic reranking results when the worker thread finishes."""
-        if not self.running or not self.winfo_exists():
-            return
+        try:
+            if not self.running or not self.winfo_exists():
+                return
 
-        latest = None
-        while not self.semantic_result_queue.empty():
-            parsed = SemanticResult.from_obj(self.semantic_result_queue.get_nowait())
-            if parsed is not None:
-                latest = parsed
+            latest = None
+            while not self.semantic_result_queue.empty():
+                parsed = SemanticResult.from_obj(self.semantic_result_queue.get_nowait())
+                if parsed is not None:
+                    latest = parsed
 
-        if latest is not None and latest.token == self.search_token and self.ai_var.get():
-            merge_started_at = time.perf_counter()
-            merged = self._merge_results(self.latest_fuzzy_results, latest.results)
-            merged = self._filter_excluded_matches(merged)
-            merge_ms = (time.perf_counter() - merge_started_at) * 1000.0
-            self.result_label.configure(text=f"{len(merged)} matches")
-            overlay_ms = self._set_matches(merged)
-            logger.info(
-                "Semantic merge applied token=%s matches=%s merge_ms=%.1f overlay_ms=%.1f",
-                latest.token,
-                len(merged),
-                merge_ms,
-                overlay_ms,
-            )
-
-        self.search_poll_job = self.after(POLL_MS, self._poll_semantic_results)
+            if latest is not None and latest.token == self.search_token and self.ai_var.get():
+                merge_started_at = time.perf_counter()
+                merged = self._merge_results(self.latest_fuzzy_results, latest.results)
+                merged = self._filter_excluded_matches(merged)
+                merge_ms = (time.perf_counter() - merge_started_at) * 1000.0
+                self.result_label.configure(text=f"{len(merged)} matches")
+                overlay_ms = self._set_matches(merged)
+                logger.info(
+                    "Semantic merge applied token=%s matches=%s merge_ms=%.1f overlay_ms=%.1f",
+                    latest.token,
+                    len(merged),
+                    merge_ms,
+                    overlay_ms,
+                )
+        except Exception as e:
+            logger.exception("_poll_semantic_results error: %s", e)
+        finally:
+            if self.running and self.winfo_exists():
+                self.search_poll_job = self.after(POLL_MS, self._poll_semantic_results)
 
     def _merge_results(self, fuzzy_results, semantic_results):
         """Combine fuzzy and semantic results into one ranked list."""
@@ -605,7 +611,7 @@ def main():
     configure_logging()
     stop_event = threading.Event()
     index_queue = queue.Queue()
-    semantic_request_queue = queue.Queue()
+    semantic_request_queue = queue.Queue(maxsize=1)
     semantic_result_queue = queue.Queue()
 
     app = IntegratedSearchbarApp(index_queue, semantic_request_queue, semantic_result_queue, stop_event)

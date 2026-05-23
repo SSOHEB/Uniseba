@@ -1,12 +1,22 @@
 """Sentence-transformers semantic search helpers."""
 
+import logging
+from collections import OrderedDict
+
 from sentence_transformers import SentenceTransformer, util
 
-from config import MAX_RESULTS, MIN_QUERY_LENGTH, SEMANTIC_LOCAL_FILES_ONLY, SEMANTIC_MODEL_NAME
+from config import (
+    MAX_RESULTS,
+    MIN_QUERY_LENGTH,
+    SEMANTIC_CACHE_MAX,
+    SEMANTIC_LOCAL_FILES_ONLY,
+    SEMANTIC_MODEL_NAME,
+)
 
 _MODEL = None
-_INDEX_CACHE = {}
+_INDEX_CACHE = OrderedDict()
 _MODEL_LOAD_FAILED = False
+logger = logging.getLogger("uniseba.semantic")
 
 
 def _get_model():
@@ -36,12 +46,18 @@ def _index_key(index):
 def _get_index_embeddings(index):
     """Precompute and cache embeddings for the current OCR index."""
     key = _index_key(index)
-    if key not in _INDEX_CACHE:
-        model = _get_model()
-        if model is None:
-            return None
-        words = [entry["word"] for entry in index]
-        _INDEX_CACHE[key] = model.encode(words, convert_to_tensor=True)
+    if key in _INDEX_CACHE:
+        _INDEX_CACHE.move_to_end(key)
+        return _INDEX_CACHE[key]
+
+    model = _get_model()
+    if model is None:
+        return None
+    words = [entry["word"] for entry in index]
+    _INDEX_CACHE[key] = model.encode(words, convert_to_tensor=True)
+    if len(_INDEX_CACHE) > SEMANTIC_CACHE_MAX:
+        _INDEX_CACHE.popitem(last=False)
+    logger.debug("Semantic cache size: %s", len(_INDEX_CACHE))
     return _INDEX_CACHE[key]
 
 
