@@ -176,6 +176,7 @@ class IntegratedSearchbarApp(SearchbarApp):
             parsed = parse_ocr_message(item)
             if isinstance(parsed, OCRRefreshing):
                 self.ocr_refreshing = True
+                self.overlay.clear()
                 continue
             if isinstance(parsed, OCRIndexUpdate):
                 latest = parsed.index
@@ -482,14 +483,14 @@ class IntegratedSearchbarApp(SearchbarApp):
                 self.ocr_ready = True
                 logger.info("Received OCR index update size=%s", len(updated))
 
-            self.ai_controller.ingest_index_for_recording(
-                self.current_index,
-                set_status=lambda text: self.result_label.configure(text=text),
-            )
+            if self.visible and self.ai_controller.is_recording:
+                self.ai_controller.ingest_index_for_recording(
+                    self.current_index,
+                    set_status=lambda text: self.result_label.configure(text=text),
+                )
             if updated is not None and self.visible and len(self.entry.get().strip()) >= MIN_QUERY_LENGTH:
                 self._apply_search()
             elif self.ocr_refreshing and self.visible and len(self.entry.get().strip()) >= MIN_QUERY_LENGTH:
-                # Do not clear existing highlights; just communicate that OCR is catching up.
                 self.result_label.configure(text="Updating visible text...")
         except Exception as e:
             logger.exception("_poll_index_queue error: %s", e)
@@ -510,6 +511,8 @@ class IntegratedSearchbarApp(SearchbarApp):
                     latest = parsed
 
             if latest is not None and latest.token == self.search_token and self.ai_var.get():
+                if not self.visible:
+                    return
                 merge_started_at = time.perf_counter()
                 merged = self._merge_results(self.latest_fuzzy_results, latest.results)
                 merged = self._filter_excluded_matches(merged)

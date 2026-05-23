@@ -1,5 +1,10 @@
 """AI feature controller for recording."""
 
+# AIController currently owns recording state and
+# CorpusRecorder lifecycle only. Summary and graph
+# execution paths were removed. Chat feature will
+# be added here in next iteration.
+
 from services.corpus_recorder import CorpusRecorder
 
 
@@ -52,7 +57,11 @@ class AIController:
             set_status(f"\u23fa Capturing... {after} phrases")
 
     def own_window_handles(self):
+        # Returns empty list — window handle tracking moved
+        # to main.py _ui_state cache in Fix 5
         return set()
 
     def shutdown(self):
+        # No-op — summary/graph resources removed
+        # Corpus recorder has no cleanup needed
         pass
