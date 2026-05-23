@@ -1,21 +1,26 @@
 """Corpus recording state and helpers for summary/graph features."""
 
-from collections import Counter
+from collections import Counter, deque
+import logging
 import re
 from typing import Iterable, Mapping, Tuple
+
+from config import CORPUS_MAX
+
+logger = logging.getLogger("uniseba.corpus")
 
 
 class CorpusRecorder:
     """Manage insertion-ordered phrase capture with dedupe and stability tracking."""
 
     def __init__(self):
-        self._corpus = []
+        self._corpus = deque(maxlen=CORPUS_MAX)
         self._seen = set()
         self._stable_poll_count = 0
         self._last_corpus_size = 0
 
     def reset(self) -> None:
-        self._corpus = []
+        self._corpus = deque(maxlen=CORPUS_MAX)
         self._seen = set()
         self._stable_poll_count = 0
         self._last_corpus_size = 0
@@ -37,6 +42,9 @@ class CorpusRecorder:
             if phrase and phrase not in self._seen:
                 self._corpus.append(phrase)
                 self._seen.add(phrase)
+                if len(self._seen) > len(self._corpus):
+                    self._seen.intersection_update(self._corpus)
+                logger.debug("Corpus size: %s", len(self._corpus))
 
         after = len(self._corpus)
         if after == self._last_corpus_size:
@@ -96,4 +104,3 @@ class CorpusRecorder:
             if parts:
                 return parts[0]
         return "Main Topic"
-

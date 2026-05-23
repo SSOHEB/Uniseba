@@ -19,6 +19,9 @@ GLOBAL_SHORTCUT = "ctrl+shift+u"
 # Maximum number of matches returned by fuzzy, semantic, or merged search.
 MAX_RESULTS = 50
 
+# Maximum number of unique OCR phrases retained during corpus recording.
+CORPUS_MAX = 2000
+
 
 # Search scoring settings
 
