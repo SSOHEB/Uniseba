@@ -15,6 +15,7 @@ class AIController:
         self.app = app
         self.logger = logger
         self._is_recording = False
+        self._recording_region = None
         self._corpus_state = CorpusRecorder()
 
     @property
@@ -35,6 +36,7 @@ class AIController:
             return
 
         self._is_recording = False
+        self._recording_region = None
         self.app.record_btn.configure(
             text="\u23fa Record",
             fg_color="#1a1f29",
@@ -55,6 +57,16 @@ class AIController:
             set_status(f"\u2705 Captured \u2014 scroll now ({after} phrases)")
         elif stable_count < 3 and after != before:
             set_status(f"\u23fa Capturing... {after} phrases")
+
+    def set_recording_region(self, x, y, w, h):
+        self._recording_region = (x, y, w, h)
+        self.logger.debug(
+            "Recording region stored: %s",
+            self._recording_region
+        )
+
+    def get_recording_region(self):
+        return self._recording_region
 
     def own_window_handles(self):
         # Returns empty list — window handle tracking moved

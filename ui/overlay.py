@@ -66,6 +66,27 @@ class OverlayWindow:
         self.flash_generation += 1
         self.canvas.delete("highlight")
 
+    def draw_recording_region(self, x, y, w, h):
+        """
+        Draw persistent dashed border showing
+        active recording region.
+        Uses tag 'recording_region' so it can be
+        cleared independently of highlights.
+        """
+        self.canvas.delete("recording_region")
+        self.canvas.create_rectangle(
+            x, y, x + w, y + h,
+            outline="#3b82f6",
+            dash=(4, 4),
+            width=2,
+            fill="",
+            tags="recording_region"
+        )
+
+    def clear_recording_region(self):
+        """Remove recording region indicator."""
+        self.canvas.delete("recording_region")
+
     def _copy_text_to_clipboard(self, text):
         """Copy matched text into the Windows clipboard."""
         win32clipboard.OpenClipboard()

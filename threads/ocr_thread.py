@@ -54,6 +54,7 @@ class OCRThread(threading.Thread):
         preferred_hwnd=None,
         locked_hwnd=None,
         lock_active=None,
+        recording_region_fn=None,
     ):
         super().__init__(daemon=True, name="UnisebaOCR")
         self.index_queue = index_queue
@@ -63,6 +64,7 @@ class OCRThread(threading.Thread):
         self.preferred_hwnd = preferred_hwnd or (lambda: None)
         self.locked_hwnd = locked_hwnd or (lambda: None)
         self.lock_active = lock_active or (lambda: False)
+        self._recording_region_fn = recording_region_fn
         self.logger = logger
         self.current_image = None
         self.target_hwnd = None
@@ -81,6 +83,7 @@ class OCRThread(threading.Thread):
         self._cycle_preferred_hwnd = None
         self._cycle_locked_hwnd = None
         self._cycle_lock_active = False
+        self._cycle_recording_region = None
 
     def run(self):
         """Keep OCR results fresh until the application exits."""
@@ -258,6 +261,15 @@ class OCRThread(threading.Thread):
         except Exception:
             self.logger.exception("Failed to read OCR lock state.")
             self._cycle_lock_active = False
+        try:
+            self._cycle_recording_region = (
+                self._recording_region_fn()
+                if self._recording_region_fn is not None
+                else None
+            )
+        except Exception:
+            self.logger.exception("Failed to read OCR recording region state.")
+            self._cycle_recording_region = None
 
     def _compute_context_score(self, current_hwnd, current_title) -> int:
         """

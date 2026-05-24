@@ -27,6 +27,7 @@ from config import (
     SEMANTIC_WEIGHT,
     SELF_UI_PHRASES,
 )
+from features.selection_box import SelectionBox
 from search.fuzzy import fuzzy_search
 from runtime.messages import (
     OCRIndexUpdate,
@@ -85,6 +86,11 @@ class IntegratedSearchbarApp(SearchbarApp):
         self._last_content_hwnd = None
         super().__init__()
         self.ai_controller = AIController(self, logger)
+        self._recording_region = None
+        self._selection_box = SelectionBox(
+            self.overlay.canvas,
+            self._on_recording_region_selected
+        )
         self.bind("<Escape>", lambda _event: self.hide_overlay())
         self._refresh_ui_state()
         self.index_poll_job = self.after(POLL_MS, self._poll_index_queue)
@@ -146,6 +152,7 @@ class IntegratedSearchbarApp(SearchbarApp):
         """Clear overlay state when the base UI hides."""
         self.last_draw_signature = None
         self.locked_hwnd = None
+        self._selection_box.deactivate()
 
     def hide_overlay(self):
         """Hide the overlay and clear any current highlights."""
@@ -164,7 +171,30 @@ class IntegratedSearchbarApp(SearchbarApp):
         super()._on_query_changed(event)
 
     def _on_record_clicked(self):
+        if not self.ai_controller.is_recording:
+            self.overlay.show()
+            self._selection_box.activate()
+            self.result_label.configure(
+                text="Draw a box around content to record"
+            )
+            return
         self.ai_controller.on_record_clicked()
+        self._selection_box.deactivate()
+        self._selection_box.clear_rect()
+        self._recording_region = None
+        self.overlay.clear_recording_region()
+
+    def _on_recording_region_selected(self, x, y, w, h):
+        self._recording_region = (x, y, w, h)
+        self.overlay.draw_recording_region(x, y, w, h)
+        self.ai_controller.set_recording_region(
+            x, y, w, h
+        )
+        self.ai_controller.on_record_clicked()
+        logger.info(
+            "Recording region confirmed: %s",
+            (x, y, w, h)
+        )
 
     def _set_matches(self, matches):
         """Redraw only when the overlay input actually changed."""
@@ -685,6 +715,9 @@ def main():
         preferred_hwnd=lambda: next(iter(app._get_ui_state()["preferred_hwnds"]), None),
         locked_hwnd=lambda: app._get_ui_state()["locked_hwnd"],
         lock_active=lambda: app._get_ui_state()["lock_active"],
+        recording_region_fn=lambda: (
+            app.ai_controller.get_recording_region()
+        ),
     )
     semantic_thread = SearchThread(semantic_request_queue, semantic_result_queue, stop_event)
     ocr_thread.start()
