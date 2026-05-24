@@ -17,7 +17,7 @@ except ImportError:
     cv2 = None
     PREPROCESSING_AVAILABLE = False
     logging.getLogger("uniseba.ocr").warning(
-        "cv2 not available — image preprocessing "
+        "cv2 not available - image preprocessing "
         "disabled. Install opencv-python to enable."
     )
 
@@ -40,8 +40,8 @@ def preprocess_for_ocr(image):
     black-on-white for improved OCR accuracy.
 
     Pipeline:
-      grayscale → CLAHE → Otsu binarization
-      → 2x upscale
+      grayscale -> CLAHE -> Otsu binarization
+      -> 2x upscale
 
     Only used in recording mode.
     Falls back to original image on any failure.
@@ -49,13 +49,13 @@ def preprocess_for_ocr(image):
     if not PREPROCESSING_AVAILABLE:
         logger.warning(
             "Preprocessing requested but cv2 "
-            "unavailable — returning original image"
+            "unavailable - returning original image"
         )
         return image
     try:
         arr = np.array(image)
 
-        # Handle RGBA — strip alpha channel
+        # Handle RGBA - strip alpha channel
         if arr.ndim == 3 and arr.shape[2] == 4:
             arr = cv2.cvtColor(arr, cv2.COLOR_RGBA2RGB)
 
@@ -78,14 +78,14 @@ def preprocess_for_ocr(image):
             cv2.THRESH_BINARY + cv2.THRESH_OTSU
         )
 
-        # Low contrast guard — if result is
+        # Low contrast guard - if result is
         # >95% one color, binarization failed
         # Use enhanced grayscale instead
         white_ratio = np.sum(binary == 255) / binary.size
         if white_ratio > 0.95 or white_ratio < 0.05:
             logger.debug(
                 "Otsu produced flat image "
-                "(white_ratio=%.2f) — "
+                "(white_ratio=%.2f) - "
                 "using enhanced grayscale",
                 white_ratio
             )
@@ -93,7 +93,7 @@ def preprocess_for_ocr(image):
         else:
             working = binary
 
-        # 2x upscale — cap at 3000px either dimension
+        # 2x upscale - cap at 3000px either dimension
         h, w = working.shape
         if h * 2 <= 3000 and w * 2 <= 3000:
             scaled = cv2.resize(
@@ -103,7 +103,7 @@ def preprocess_for_ocr(image):
             )
         else:
             logger.debug(
-                "Skipping upscale — "
+                "Skipping upscale - "
                 "image too large after 2x: %dx%d",
                 w * 2, h * 2
             )
@@ -115,7 +115,7 @@ def preprocess_for_ocr(image):
 
     except Exception as e:
         logger.warning(
-            "preprocess_for_ocr failed: %s — "
+            "preprocess_for_ocr failed: %s - "
             "returning original image", e
         )
         return image
