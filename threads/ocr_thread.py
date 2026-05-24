@@ -66,6 +66,10 @@ class OCRThread(threading.Thread):
         self.logger = logger
         self.current_image = None
         self.target_hwnd = None
+        self._last_context_hwnd = None
+        self._last_context_title = ""
+        self._context_score = 0
+        self._current_cycle_title = ""
         self.has_found_valid_target = False
         self.blocked_exact_titles = BLOCKED_WINDOW_TITLES
         self.region_index_cache = {}
@@ -85,6 +89,20 @@ class OCRThread(threading.Thread):
                 cycle_started_at = time.perf_counter()
                 self._refresh_cycle_state()
                 self._update_target_window()
+                if self.target_hwnd is None:
+                    self._context_score = 0
+                else:
+                    try:
+                        self._current_cycle_title = win32gui.GetWindowText(self.target_hwnd).strip()
+                    except Exception:
+                        self._current_cycle_title = ""
+                    self._context_score = self._compute_context_score(
+                        self.target_hwnd,
+                        self._current_cycle_title,
+                    )
+                    self._apply_context_score(self._context_score)
+                    self._last_context_hwnd = self.target_hwnd
+                    self._last_context_title = self._current_cycle_title
                 capture_started_at = time.perf_counter()
                 image, rect = self._capture_target_window()
                 capture_ms = (time.perf_counter() - capture_started_at) * 1000.0
@@ -155,10 +173,14 @@ class OCRThread(threading.Thread):
                     continue
 
                 full_window = True
+                force_full = self._context_score >= 2
                 # Fast path for scroll: most of the image changes, but it's largely a translation.
                 # When we can estimate scroll delta reliably, we shift the existing index and
                 # OCR only the newly revealed strip (top or bottom).
-                if PARTIAL_OCR_ENABLED and self.last_stable_index and prev_image is not None:
+                if force_full:
+                    index, timing = self._build_full_index(image, rect)
+                    full_window = True
+                elif PARTIAL_OCR_ENABLED and self.last_stable_index and prev_image is not None:
                     scroll_index = self._maybe_build_scroll_index(prev_image, image, rect, changed_regions)
                     if scroll_index is not None:
                         index, timing, full_window = scroll_index
@@ -236,6 +258,48 @@ class OCRThread(threading.Thread):
         except Exception:
             self.logger.exception("Failed to read OCR lock state.")
             self._cycle_lock_active = False
+
+    def _compute_context_score(self, current_hwnd, current_title) -> int:
+        """
+        Returns context change score:
+        0 — same window, same title, minor change
+        1 — same window, same title, major content change
+        2 — same window, title changed (tab/doc switch)
+        3 — different hwnd entirely (app switch)
+        """
+        if current_hwnd is None:
+            return 0
+        if current_hwnd != self._last_context_hwnd:
+            if self._last_context_hwnd is not None:
+                return 3
+            return 0
+        if current_title != self._last_context_title:
+            if current_title != "":
+                return 2
+        return 0
+
+    def _apply_context_score(self, score):
+        """Apply capture strategy based on context score."""
+        if score == 3:
+            self.logger.info(
+                "Context score 3: hwnd changed "
+                "hwnd=%s → %s, clearing stable index",
+                self._last_context_hwnd,
+                self.target_hwnd,
+            )
+            self.last_stable_index = []
+        elif score == 2:
+            self.logger.info(
+                "Context score 2: title changed "
+                "'%s' → '%s', forcing full capture",
+                self._last_context_title,
+                self._current_cycle_title,
+            )
+        elif score == 1:
+            self.logger.debug(
+                "Context score 1: major change, "
+                "forcing full capture"
+            )
 
     def _maybe_build_scroll_index(self, prev_image, image, rect, changed_regions):
         """Attempt a scroll-specialized incremental update.

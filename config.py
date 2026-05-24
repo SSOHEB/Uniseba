@@ -89,6 +89,12 @@ CHANGE_THUMB_SIZE = (32, 32)
 # Downscale factor applied to OCR regions before they are sent into the OCR engine.
 OCR_DOWNSCALE = 0.75
 
+# When True, apply image preprocessing during
+# recording mode captures (grayscale + CLAHE +
+# Otsu binarization + 2x upscale).
+# Set False to disable without code changes.
+RECORDING_PREPROCESS = True
+
 # Incremental OCR settings: when the screen changes, OCR only the changed region(s)
 # and merge into the last stable index. This is the primary lever for fast scroll sync.
 PARTIAL_OCR_ENABLED = True
