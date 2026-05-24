@@ -182,7 +182,7 @@ def recognize_image(
         logger.debug(
             "  word=%r conf=%s x=%s y=%s w=%s h=%s",
             w["text"],
-            w.get("confidence", "N/A"),
+            w.get("ocr_confidence", "N/A"),
             w["x"],
             w["y"],
             w["w"],
