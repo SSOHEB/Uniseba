@@ -43,6 +43,13 @@ MIN_WORD_LENGTH = 2
 # Minimum proxy confidence required for fuzzy search candidates.
 MIN_CONFIDENCE = 0.10
 
+# Hybrid OCR confidence weights used when normalizing OCR index entries.
+OCR_CONFIDENCE_WEIGHT = 0.6
+HEIGHT_CONFIDENCE_WEIGHT = 0.4
+
+# Minimum confidence reserved for corpus capture policy.
+CORPUS_MIN_CONFIDENCE = 0.5
+
 
 # Semantic search settings
 

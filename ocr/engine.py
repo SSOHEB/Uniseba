@@ -37,8 +37,19 @@ def recognize_image(image, window_rect=None, min_height=8):
     offset_y = 0 if window_rect is None else window_rect["top"]
     words = []
 
-    for bbox, text, confidence in results:
-        if float(confidence) < 0.15:
+    for result in results:
+        try:
+            bbox, text, confidence = result
+        except ValueError:
+            if len(result) < 2:
+                continue
+            bbox, text = result[:2]
+            confidence = 0.0
+        try:
+            ocr_confidence = float(confidence)
+        except (TypeError, ValueError):
+            ocr_confidence = 0.0
+        if ocr_confidence < 0.15:
             continue
         xs = [point[0] for point in bbox]
         ys = [point[1] for point in bbox]
@@ -55,6 +66,7 @@ def recognize_image(image, window_rect=None, min_height=8):
                 "y": int(offset_y + y),
                 "w": w,
                 "h": h,
+                "ocr_confidence": ocr_confidence,
             }
         )
 

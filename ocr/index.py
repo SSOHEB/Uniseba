@@ -2,6 +2,8 @@
 
 import logging
 
+from config import HEIGHT_CONFIDENCE_WEIGHT, OCR_CONFIDENCE_WEIGHT
+
 logger = logging.getLogger("uniseba.ocr.index")
 
 
@@ -40,7 +42,17 @@ def build_ocr_index(words):
         if not _passes_base_filters(text, height):
             filtered_out += 1
             continue
-        confidence = round(min(1.0, max(height, 8) / 32.0), 2)
+        try:
+            ocr_conf = float(word.get("ocr_confidence", 0.0))
+        except (TypeError, ValueError):
+            ocr_conf = 0.0
+        ocr_conf = max(0.0, min(1.0, ocr_conf))
+        height_proxy = round(min(1.0, max(height, 8) / 32.0), 2)
+        hybrid = round(
+            (ocr_conf * OCR_CONFIDENCE_WEIGHT) + (height_proxy * HEIGHT_CONFIDENCE_WEIGHT),
+            2,
+        )
+        confidence = max(0.0, min(1.0, hybrid))
         entry = {
             "word": text.lower(),
             "original": text,
@@ -49,6 +61,7 @@ def build_ocr_index(words):
             "w": int(word["w"]),
             "h": height,
             "confidence": confidence,
+            "height_confidence": height_proxy,
         }
         if len(entry["original"]) > 25 and " " in entry["original"]:
             words_in_entry = entry["original"].split()
@@ -70,6 +83,7 @@ def build_ocr_index(words):
                         "w": word_w,
                         "h": entry["h"],
                         "confidence": entry["confidence"],
+                        "height_confidence": entry["height_confidence"],
                     }
                 )
             continue

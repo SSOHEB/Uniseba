@@ -96,10 +96,18 @@ class IntegratedSearchbarApp(SearchbarApp):
 
     def register_global_shortcut(self):
         """Expose Ctrl+Shift+U from the app entry point."""
-        self.global_hotkey = keyboard.add_hotkey(
-            GLOBAL_SHORTCUT,
-            self._handle_global_shortcut,
-        )
+        try:
+            self.global_hotkey = keyboard.add_hotkey(
+                GLOBAL_SHORTCUT,
+                self._handle_global_shortcut,
+            )
+            logger.info("Hotkey registered: %s", GLOBAL_SHORTCUT)
+        except Exception as e:
+            logger.error("Hotkey registration failed: %s", e)
+            self.after(0, lambda: self._show_hotkey_warning())
+
+    def _show_hotkey_warning(self):
+        self.result_label.configure(text="⚠ Hotkey unavailable — try running as administrator")
 
     def _handle_global_shortcut(self):
         hwnd = self._last_content_hwnd
