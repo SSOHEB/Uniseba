@@ -1,5 +1,4 @@
 import logging
-from tkinter import Canvas
 
 logger = logging.getLogger("uniseba.selection_box")
 
@@ -21,6 +20,8 @@ class SelectionBox:
         self._on_complete = on_complete
         self._start_x = None
         self._start_y = None
+        self._start_canvas_x = None
+        self._start_canvas_y = None
         self._rect_id = None
         self._active = False
         self._bindings = []
@@ -34,11 +35,13 @@ class SelectionBox:
         self._bind("<ButtonPress-1>", self._on_press)
         self._bind("<B1-Motion>", self._on_drag)
         self._bind("<ButtonRelease-1>", self._on_release)
+        self._enter_capture_mode()
         self._canvas.configure(cursor="crosshair")
         logger.debug("SelectionBox activated")
 
     def deactivate(self):
         """Remove all bindings and clean canvas state."""
+        was_active = self._active
         self._active = False
         for seq, bid in self._bindings:
             try:
@@ -54,11 +57,16 @@ class SelectionBox:
             self._rect_id = None
         self._start_x = None
         self._start_y = None
+        self._start_canvas_x = None
+        self._start_canvas_y = None
+        if was_active:
+            self._exit_capture_mode()
         try:
             self._canvas.configure(cursor="")
         except Exception:
             pass
-        logger.debug("SelectionBox deactivated")
+        if was_active:
+            logger.debug("SelectionBox deactivated")
 
     def get_rect(self):
         """Return stored (x, y, w, h) or None."""
@@ -75,6 +83,8 @@ class SelectionBox:
     def _on_press(self, event):
         self._start_x = event.x_root
         self._start_y = event.y_root
+        self._start_canvas_x = event.x
+        self._start_canvas_y = event.y
         if self._rect_id is not None:
             try:
                 self._canvas.delete(self._rect_id)
@@ -94,16 +104,10 @@ class SelectionBox:
         try:
             self._canvas.coords(
                 self._rect_id,
-                self._canvas.winfo_rootx() -
-                self._canvas.winfo_rootx() +
-                (self._start_x -
-                 self._canvas.winfo_rootx()),
-                self._start_y -
-                self._canvas.winfo_rooty(),
-                event.x_root -
-                self._canvas.winfo_rootx(),
-                event.y_root -
-                self._canvas.winfo_rooty()
+                self._start_canvas_x,
+                self._start_canvas_y,
+                event.x,
+                event.y
             )
         except Exception:
             pass
@@ -129,6 +133,8 @@ class SelectionBox:
                 self._rect_id = None
             self._start_x = None
             self._start_y = None
+            self._start_canvas_x = None
+            self._start_canvas_y = None
             return
 
         # Clamp to screen dimensions
@@ -151,9 +157,33 @@ class SelectionBox:
             "x=%s y=%s w=%s h=%s", x, y, w, h
         )
         self.deactivate()
+        logger.info(
+            "SelectionBox _on_complete firing: x=%s y=%s w=%s h=%s",
+            x, y, w, h
+        )
         try:
             self._on_complete(x, y, w, h)
         except Exception as e:
             logger.warning(
                 "SelectionBox on_complete failed: %s", e
             )
+
+    def _enter_capture_mode(self):
+        """Make overlay non-transparent so canvas receives drag events."""
+        try:
+            top = self._canvas.winfo_toplevel()
+            top.attributes("-transparentcolor", "")
+            top.configure(bg="#010102")
+            self._canvas.configure(bg="#010102")
+        except Exception:
+            pass
+
+    def _exit_capture_mode(self):
+        """Restore transparent overlay behavior after selection."""
+        try:
+            top = self._canvas.winfo_toplevel()
+            top.configure(bg="#010101")
+            self._canvas.configure(bg="#010101")
+            top.attributes("-transparentcolor", "#010101")
+        except Exception:
+            pass

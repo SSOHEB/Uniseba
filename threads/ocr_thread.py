@@ -27,6 +27,8 @@ from config import (
     MIN_TARGET_WIDTH,
     OCR_DOWNSCALE,
     OCR_UPDATE_DEBOUNCE_MS,
+    SCROLL_REST_MS,
+    SCROLL_REST_MIN_CYCLES,
     PARTIAL_OCR_ENABLED,
     PARTIAL_OCR_MAX_AREA_RATIO,
     PARTIAL_OCR_MAX_RECTS,
@@ -84,10 +86,16 @@ class OCRThread(threading.Thread):
         self._cycle_locked_hwnd = None
         self._cycle_lock_active = False
         self._cycle_recording_region = None
+        # Scroll-rest capture state
+        self._scroll_detected_at = None
+        self._scroll_rest_triggered = False
+        self._ocr_in_progress = False
+        self._consecutive_scroll_cycles = 0
 
     def run(self):
         """Keep OCR results fresh until the application exits."""
         while not self.stop_event.is_set():
+            self._ocr_in_progress = True
             try:
                 cycle_started_at = time.perf_counter()
                 self._refresh_cycle_state()
@@ -177,6 +185,7 @@ class OCRThread(threading.Thread):
 
                 full_window = True
                 force_full = self._context_score >= 2
+                scroll_index = None
                 # Fast path for scroll: most of the image changes, but it's largely a translation.
                 # When we can estimate scroll delta reliably, we shift the existing index and
                 # OCR only the newly revealed strip (top or bottom).
@@ -212,6 +221,37 @@ class OCRThread(threading.Thread):
                     self.stop_event.wait(SCAN_INTERVAL_MS / 1000.0)
                     continue
 
+                # Scroll-rest tracking
+                if scroll_index is not None:
+                    # Scroll was detected this cycle
+                    self._scroll_detected_at = time.monotonic()
+                    self._consecutive_scroll_cycles += 1
+                    self._scroll_rest_triggered = False
+                else:
+                    # No scroll this cycle - check for rest condition
+                    if (
+                        self._scroll_detected_at is not None
+                        and not self._scroll_rest_triggered
+                        and self._consecutive_scroll_cycles
+                            >= SCROLL_REST_MIN_CYCLES
+                        and self._cycle_recording_region is not None
+                    ):
+                        elapsed_ms = (
+                            time.monotonic() - self._scroll_detected_at
+                        ) * 1000
+                        if elapsed_ms >= self._get_scroll_rest_ms():
+                            # Allow the trigger to run from the current OCR cycle;
+                            # _trigger_scroll_rest_capture still guards external callers.
+                            was_in_progress = self._ocr_in_progress
+                            self._ocr_in_progress = False
+                            try:
+                                self._trigger_scroll_rest_capture()
+                            finally:
+                                self._ocr_in_progress = was_in_progress
+                            self._scroll_rest_triggered = True
+                            self._consecutive_scroll_cycles = 0
+                            self._scroll_detected_at = None
+
                 self.last_stable_index = index
                 self.last_update_at = now
                 self.last_forced_ocr_at = now
@@ -231,6 +271,8 @@ class OCRThread(threading.Thread):
                 self.index_queue.put(OCRIndexUpdate(index=index).to_dict())
             except Exception:
                 self.logger.exception("OCR thread failed while updating the index.")
+            finally:
+                self._ocr_in_progress = False
 
             self.stop_event.wait(SCAN_INTERVAL_MS / 1000.0)
 
@@ -612,6 +654,89 @@ class OCRThread(threading.Thread):
             image = Image.frombytes("RGB", shot.size, shot.rgb)
         image = self._mask_excluded_regions(image, rect)
         return image, rect
+
+    def _get_scroll_rest_ms(self) -> int:
+        """
+        Returns scroll-rest threshold in milliseconds.
+        Read from config - settings panel will update
+        config value to switch between Fast/Normal/Slow.
+        """
+        return SCROLL_REST_MS
+
+    def _capture_region(self, region) -> "PILImage or None":
+        """
+        Capture a PIL Image from an arbitrary screen rect.
+        region: (x, y, w, h) in absolute screen coordinates.
+        Returns None on any failure.
+        """
+        x, y, w, h = region
+        try:
+            with mss() as sct:
+                shot = sct.grab({
+                    "left": x,
+                    "top": y,
+                    "width": w,
+                    "height": h,
+                })
+                from PIL import Image as PILImage
+                return PILImage.frombytes(
+                    "RGB", shot.size, shot.rgb
+                )
+        except Exception as e:
+            self.logger.warning(
+                "Region capture failed: %s", e
+            )
+            return None
+
+    def _trigger_scroll_rest_capture(self):
+        """
+        Fire a full OCR capture on the recording region
+        when the user pauses scrolling.
+        Only runs when a recording region is active.
+        Overlap guard: skips if OCR already in progress.
+        """
+        if self._ocr_in_progress:
+            self.logger.debug(
+                "Scroll-rest skipped: OCR in progress"
+            )
+            return
+
+        region = self._cycle_recording_region
+        if region is None:
+            self.logger.debug(
+                "Scroll-rest skipped: no recording region"
+            )
+            return
+
+        self.logger.debug(
+            "Scroll-rest capture firing on region %s",
+            region
+        )
+
+        image = self._capture_region(region)
+        if image is None:
+            return
+
+        try:
+            from ocr.index import build_ocr_index
+            words = recognize_image(image, window_rect={
+                "left": region[0],
+                "top": region[1],
+            })
+            index = build_ocr_index(words)
+            index = self._filter_excluded_index_items(index)
+            if index:
+                self.index_queue.put(
+                    OCRIndexUpdate(index=index).to_dict()
+                )
+                self.logger.debug(
+                    "Scroll-rest capture: %s entries",
+                    len(index)
+                )
+        except Exception as e:
+            self.logger.warning(
+                "Scroll-rest capture failed: %s", e
+            )
 
     def _mask_excluded_regions(self, image, capture_rect):
         """Black out our own floating search UI if it overlaps the captured content."""

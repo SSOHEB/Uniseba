@@ -87,6 +87,7 @@ class IntegratedSearchbarApp(SearchbarApp):
         super().__init__()
         self.ai_controller = AIController(self, logger)
         self._recording_region = None
+        self._selecting_recording_region = False
         self._selection_box = SelectionBox(
             self.overlay.canvas,
             self._on_recording_region_selected
@@ -152,7 +153,7 @@ class IntegratedSearchbarApp(SearchbarApp):
         """Clear overlay state when the base UI hides."""
         self.last_draw_signature = None
         self.locked_hwnd = None
-        self._selection_box.deactivate()
+        self._cancel_pending_recording_selection(clear_overlay=False)
 
     def hide_overlay(self):
         """Hide the overlay and clear any current highlights."""
@@ -171,12 +172,24 @@ class IntegratedSearchbarApp(SearchbarApp):
         super()._on_query_changed(event)
 
     def _on_record_clicked(self):
+        if self._selecting_recording_region:
+            self._cancel_pending_recording_selection()
+            return
+
         if not self.ai_controller.is_recording:
             self.overlay.show()
+            self._selecting_recording_region = True
             self._selection_box.activate()
+            self.record_btn.configure(
+                text="\u23f9 Stop",
+                fg_color="#2d1f1f",
+                text_color="#ef4444",
+                border_color="#ef4444",
+            )
             self.result_label.configure(
                 text="Draw a box around content to record"
             )
+            logger.info("Recording region selection started")
             return
         self.ai_controller.on_record_clicked()
         self._selection_box.deactivate()
@@ -184,7 +197,29 @@ class IntegratedSearchbarApp(SearchbarApp):
         self._recording_region = None
         self.overlay.clear_recording_region()
 
+    def _cancel_pending_recording_selection(self, clear_overlay=True):
+        """Cancel an in-progress region selection without toggling recording."""
+        was_selecting = self._selecting_recording_region
+        self._selecting_recording_region = False
+        self._selection_box.deactivate()
+        if was_selecting and not self.ai_controller.is_recording:
+            self.record_btn.configure(
+                text="\u23fa Record",
+                fg_color="#1a1f29",
+                text_color="#f59e0b",
+                border_color="#f59e0b",
+            )
+            self.result_label.configure(text="0 matches")
+            if clear_overlay:
+                self.overlay.clear_recording_region()
+            logger.info("Recording region selection cancelled")
+
     def _on_recording_region_selected(self, x, y, w, h):
+        logger.info(
+            "_on_recording_region_selected fired: %s",
+            (x, y, w, h)
+        )
+        self._selecting_recording_region = False
         self._recording_region = (x, y, w, h)
         self.overlay.draw_recording_region(x, y, w, h)
         self.ai_controller.set_recording_region(

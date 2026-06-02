@@ -24,6 +24,13 @@ class AIController:
 
     def on_record_clicked(self):
         if not self._is_recording:
+            if self._recording_region is None:
+                self.logger.warning(
+                    "on_record_clicked() called to start "
+                    "recording but _recording_region is None. "
+                    "Refusing to start - call set_recording_region() first."
+                )
+                return
             self._is_recording = True
             self._corpus_state.reset()
             self.app.record_btn.configure(

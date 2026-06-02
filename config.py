@@ -68,6 +68,15 @@ SEMANTIC_CACHE_MAX = 50
 # Background OCR scan interval in milliseconds.
 SCAN_INTERVAL_MS = 300
 
+# Scroll-rest capture trigger settings
+# Time after last scroll before a capture fires (ms)
+SCROLL_REST_MS = 700
+SCROLL_REST_FAST_MS = 400
+SCROLL_REST_SLOW_MS = 1200
+# Minimum consecutive scroll cycles before rest triggers
+# Prevents firing on single-cycle micro-movements
+SCROLL_REST_MIN_CYCLES = 2
+
 # Smallest top-level window width allowed for normal OCR targeting.
 MIN_TARGET_WIDTH = 300
 
@@ -89,11 +98,10 @@ CHANGE_THUMB_SIZE = (32, 32)
 # Downscale factor applied to OCR regions before they are sent into the OCR engine.
 OCR_DOWNSCALE = 0.75
 
-# When True, apply image preprocessing during
-# recording mode captures (grayscale + CLAHE +
-# Otsu binarization + 2x upscale).
-# Set False to disable without code changes.
-RECORDING_PREPROCESS = True
+# Preprocessing disabled - no observed accuracy gaps
+# in production. Re-enable only when a specific
+# content-type failure is identified and reproducible.
+RECORDING_PREPROCESS = False
 
 # Incremental OCR settings: when the screen changes, OCR only the changed region(s)
 # and merge into the last stable index. This is the primary lever for fast scroll sync.

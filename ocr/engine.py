@@ -72,15 +72,10 @@ def preprocess_for_ocr(image):
         )
         enhanced = clahe.apply(gray)
 
-        # Otsu binarization
         _, binary = cv2.threshold(
             enhanced, 0, 255,
             cv2.THRESH_BINARY + cv2.THRESH_OTSU
         )
-
-        # Low contrast guard - if result is
-        # >95% one color, binarization failed
-        # Use enhanced grayscale instead
         white_ratio = np.sum(binary == 255) / binary.size
         if white_ratio > 0.95 or white_ratio < 0.05:
             logger.debug(
