@@ -32,7 +32,7 @@ class AIController:
                 )
                 return
             self._is_recording = True
-            self._corpus_state.reset()
+            self._corpus_state.reset(session_id=None)
             self.app.record_btn.configure(
                 text="\u23f9 Stop",
                 fg_color="#2d1f1f",

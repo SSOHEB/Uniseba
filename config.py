@@ -19,8 +19,9 @@ GLOBAL_SHORTCUT = "ctrl+shift+u"
 # Maximum number of matches returned by fuzzy, semantic, or merged search.
 MAX_RESULTS = 50
 
-# Maximum number of unique OCR phrases retained during corpus recording.
-CORPUS_MAX = 2000
+# Vector store settings
+RAG_TOP_K = 8
+VECTOR_STORE_FLUSH_EVERY_N = 50
 
 
 # Search scoring settings
@@ -49,6 +50,9 @@ HEIGHT_CONFIDENCE_WEIGHT = 0.4
 
 # Minimum confidence reserved for corpus capture policy.
 CORPUS_MIN_CONFIDENCE = 0.5
+
+# Maximum vertical gap, in pixels, for grouping OCR words into a sentence line.
+SENTENCE_GROUP_VERTICAL_TOLERANCE_PX = 20
 
 
 # Semantic search settings

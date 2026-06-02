@@ -215,12 +215,6 @@ class OCRThread(threading.Thread):
                 elif index is None:
                     index, timing = self._build_full_index(image, rect)
                     full_window = True
-                index = self._stabilize_index(index)
-                if index is None:
-                    self.logger.info("Discarded unstable OCR frame and kept the last stable index")
-                    self.stop_event.wait(SCAN_INTERVAL_MS / 1000.0)
-                    continue
-
                 # Scroll-rest tracking
                 if scroll_index is not None:
                     # Scroll was detected this cycle
@@ -251,6 +245,11 @@ class OCRThread(threading.Thread):
                             self._scroll_rest_triggered = True
                             self._consecutive_scroll_cycles = 0
                             self._scroll_detected_at = None
+                index = self._stabilize_index(index)
+                if index is None:
+                    self.logger.info("Discarded unstable OCR frame and kept the last stable index")
+                    self.stop_event.wait(SCAN_INTERVAL_MS / 1000.0)
+                    continue
 
                 self.last_stable_index = index
                 self.last_update_at = now
